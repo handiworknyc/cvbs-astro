@@ -1,0 +1,123 @@
+@use "hw-iconvars" as *;
+
+
+[class^="icon-"]:before,
+[class*=" icon-"]:before {
+  font-family: 'me';
+  speak: none;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.icon-receipt { &:before { content: "#{$icon-receipt}"; } }
+.icon-caution { &:before { content: "#{$icon-caution}"; } }
+.icon-happy-face { &:before { content: "#{$icon-happy-face}"; } }
+.icon-restaurant { &:before { content: "#{$icon-restaurant}"; } }
+.icon-takeout { &:before { content: "#{$icon-takeout}"; } }
+.icon-arrow-up-circle { &:before { content: "#{$icon-arrow-up-circle}"; } }
+.icon-arrow-left-circle { &:before { content: "#{$icon-arrow-left-circle}"; } }
+.icon-arrow-right-circle { &:before { content: "#{$icon-arrow-right-circle}"; } }
+.icon-arrow-down-circle { &:before { content: "#{$icon-arrow-down-circle}"; } }
+.icon-arrow-left { &:before { content: "#{$icon-arrow-left-active}"; } }
+.icon-arrow-left-border { &:before { content: "#{$icon-arrow-left-border}"; } }
+.icon-arrow-right { &:before { content: "#{$icon-arrow-right-active}"; } }
+.icon-arrow-right-border { &:before { content: "#{$icon-arrow-right-border}"; } }
+.icon-arrow-up-border { &:before { content: "#{$icon-arrow-up-border}"; } }
+.icon-number-1 { &:before { content: "#{$icon-number-1}"; } }
+.icon-number-2 { &:before { content: "#{$icon-number-2}"; } }
+.icon-number-3 { &:before { content: "#{$icon-number-3}"; } }
+.icon-number-4 { &:before { content: "#{$icon-number-4}"; } }
+.icon-number-5 { &:before { content: "#{$icon-number-5}"; } }
+.icon-number-6 { &:before { content: "#{$icon-number-6}"; } }
+.icon-number-7 { &:before { content: "#{$icon-number-7}"; } }
+.icon-number-8 { &:before { content: "#{$icon-number-8}"; } }
+.icon-number-9 { &:before { content: "#{$icon-number-9}"; } }
+.icon-number-10 { &:before { content: "#{$icon-number-10}"; } }
+.icon-chevron-down { &:before { content: "#{$icon-chevron-down}"; } }
+.icon-chevron-left { &:before { content: "#{$icon-chevron-left}"; } }
+.icon-chevron-right { &:before { content: "#{$icon-chevron-right}"; } }
+.icon-chevron-up { &:before { content: "#{$icon-chevron-up}"; } }
+.icon-thin-chevron-down { &:before { content: "#{$icon-thin-chevron-down}"; } }
+.icon-thin-chevron-left { &:before { content: "#{$icon-thin-chevron-left}"; } }
+.icon-thin-chevron-right { &:before { content: "#{$icon-thin-chevron-right}"; } }
+.icon-thin-chevron-up { &:before { content: "#{$icon-thin-chevron-up}"; } }
+.icon-minus { &:before { content: "#{$icon-minus}"; } }
+.icon-plus { &:before { content: "#{$icon-plus}"; } }
+.icon-yelp { &:before { content: "#{$icon-yelp}"; } }
+.icon-play { &:before { content: "#{$icon-play}"; } }
+.icon-close1 { &:before { content: "#{$icon-close1}"; } }
+.icon-camera { &:before { content: "#{$icon-camera}"; } }
+.icon-phone { &:before { content: "#{$icon-phone}"; } }
+.icon-marker { &:before { content: "#{$icon-marker}"; } }
+.icon-link { &:before { content: "#{$icon-link}"; } }
+.icon-facebook { &:before { content: "#{$icon-facebook}"; } }
+.icon-facebook-square { &:before { content: "#{$icon-facebook-square}"; } }
+.icon-instagram { &:before { content: "#{$icon-instagram}"; } }
+.icon-twitter { &:before { content: "#{$icon-twitter}"; } }
+.icon-youtube { &:before { content: "#{$icon-youtube}"; } }
+.icon-linkedin { &:before { content: "#{$icon-linkedin}"; } }
+
+.icon-after {
+  &.icon-receipt { &:after { content: "#{$icon-receipt}"; } }
+  &.icon-caution { &:after { content: "#{$icon-caution}"; } }
+  &.icon-happy-face { &:after { content: "#{$icon-happy-face}"; } }
+  &.icon-restaurant { &:after { content: "#{$icon-restaurant}"; } }
+  &.icon-takeout { &:after { content: "#{$icon-takeout}"; } }
+  &.icon-arrow-up-circle { &:after { content: "#{$icon-arrow-up-circle}"; } }
+  &.icon-arrow-left-circle { &:after { content: "#{$icon-arrow-left-circle}"; } }
+  &.icon-arrow-right-circle { &:after { content: "#{$icon-arrow-right-circle}"; } }
+  &.icon-arrow-down-circle { &:after { content: "#{$icon-arrow-down-circle}"; } }
+  &.icon-arrow-left-active { &:after { content: "#{$icon-arrow-left-active}"; } }
+  &.icon-arrow-left-border { &:after { content: "#{$icon-arrow-left-border}"; } }
+  &.icon-arrow-right { &:after { content: "#{$icon-arrow-right-active}"; } }
+  &.icon-arrow-right-border { &:after { content: "#{$icon-arrow-right-border}"; } }
+  &.icon-arrow-up-border { &:after { content: "#{$icon-arrow-up-border}"; } }
+  &.icon-number-1 { &:after { content: "#{$icon-number-1}"; } }
+  &.icon-number-2 { &:after { content: "#{$icon-number-2}"; } }
+  &.icon-number-3 { &:after { content: "#{$icon-number-3}"; } }
+  &.icon-number-4 { &:after { content: "#{$icon-number-4}"; } }
+  &.icon-number-5 { &:after { content: "#{$icon-number-5}"; } }
+  &.icon-number-6 { &:after { content: "#{$icon-number-6}"; } }
+  &.icon-number-7 { &:after { content: "#{$icon-number-7}"; } }
+  &.icon-number-8 { &:after { content: "#{$icon-number-8}"; } }
+  &.icon-number-9 { &:after { content: "#{$icon-number-9}"; } }
+  &.icon-number-10 { &:after { content: "#{$icon-number-10}"; } }
+  &.icon-chevron-down { &:after { content: "#{$icon-chevron-down}"; } }
+  &.icon-chevron-left { &:after { content: "#{$icon-chevron-left}"; } }
+  &.icon-chevron-right { &:after { content: "#{$icon-chevron-right}"; } }
+  &.icon-chevron-up { &:after { content: "#{$icon-chevron-up}"; } }
+  &.icon-thin-chevron-down { &:after { content: "#{$icon-thin-chevron-down}"; } }
+  &.icon-thin-chevron-left { &:after { content: "#{$icon-thin-chevron-left}"; } }
+  &.icon-thin-chevron-right { &:after { content: "#{$icon-thin-chevron-right}"; } }
+  &.icon-thin-chevron-up { &:after { content: "#{$icon-thin-chevron-up}"; } }
+  &.icon-minus { &:after { content: "#{$icon-minus}"; } }
+  &.icon-plus { &:after { content: "#{$icon-plus}"; } }
+  &.icon-yelp { &:after { content: "#{$icon-yelp}"; } }
+  &.icon-play { &:after { content: "#{$icon-play}"; } }
+  &.icon-close1 { &:after { content: "#{$icon-close1}"; } }
+  &.icon-camera { &:after { content: "#{$icon-camera}"; } }
+  &.icon-phone { &:after { content: "#{$icon-phone}"; } }
+  &.icon-marker { &:after { content: "#{$icon-marker}"; } }
+  &.icon-link { &:after { content: "#{$icon-link}"; } }
+  &.icon-facebook { &:after { content: "#{$icon-facebook}"; } }
+  &.icon-facebook-square { &:after { content: "#{$icon-facebook-square}"; } }
+  &.icon-instagram { &:after { content: "#{$icon-instagram}"; } }
+  &.icon-twitter { &:after { content: "#{$icon-twitter}"; } }
+  &.icon-youtube { &:after { content: "#{$icon-youtube}"; } }
+  &.icon-linkedin { &:after { content: "#{$icon-linkedin}"; } }
+}
+
+.icon-after:before {
+  display: none;
+  content: '';
+}
+
+.icon-after:after {
+  font-family: 'me';
+  padding-left: 0.667rem; // 8px ÷ 12
+  display: inline-block;
+}

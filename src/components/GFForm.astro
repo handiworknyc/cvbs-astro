@@ -1,0 +1,82 @@
+---
+/**
+ * src/components/GFForm.astro
+ * Reusable Gravity Forms wrapper:
+ *  - SSR: tries to fetch rendered GF HTML.
+ *  - Client: initializes submit handler; if SSR failed or env missing, fetches HTML on the client.
+ */
+import { fetchRenderedHTML } from "@/lib/gf/api";
+
+const {
+  formId: rawId,
+  showTitle = false,
+  showDescription = true,
+  ajax = true,
+  tabindex = 0,
+  theme = "gravity-theme",
+  viaProxy = false,
+  class: className = "",
+  id: hostId = undefined,
+} = Astro.props as {
+  formId: number | string;
+  showTitle?: boolean;
+  showDescription?: boolean;
+  ajax?: boolean;
+  tabindex?: number;
+  theme?: string;
+  viaProxy?: boolean; // submit via /api/gf/submit proxy if true
+  class?: string;
+  id?: string;
+};
+
+const formId = typeof rawId === "string" ? parseInt(rawId, 10) : Number(rawId);
+if (!Number.isFinite(formId) || formId <= 0) {
+  throw new Error("<GFForm> requires a positive numeric formId");
+}
+
+// Expose PUBLIC base for client fallback fetch; private env is SSR-only
+const PUBLIC_WP_BASE = (import.meta.env.PUBLIC_WP_BASE_URL as string | undefined) || "";
+
+let html = "";
+try {
+  html = await fetchRenderedHTML(formId, {
+    title: showTitle,
+    description: showDescription,
+    ajax,
+    tabindex,
+    theme,
+  });
+} catch (err) {
+  console.warn("[GFForm] SSR render fetch failed:", err);
+  // Leave `html` empty; client script will fetch on mount.
+}
+---
+
+<div
+  class={`gf-host ${className}`}
+  id={hostId}
+  data-gf-form-id={formId}
+  data-gf-proxy={viaProxy ? "1" : "0"}
+  data-wp-base={PUBLIC_WP_BASE}
+  data-gf-theme={theme}
+>
+  {html
+    ? <Fragment set:html={html} />
+    : <div class="gf-skeleton" aria-busy="true">Loading form…</div>}
+</div>
+
+<script>
+  // Astro will bundle this import (works in dev & build)
+  import initGFClient from "./GFForm.client.ts";
+
+  // Run once on initial load
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => initGFClient());
+  } else {
+    initGFClient();
+  }
+
+  // If your site uses view transitions / SPA-style nav, run after each navigation too
+  addEventListener("astro:page-load", () => initGFClient());
+</script>
+

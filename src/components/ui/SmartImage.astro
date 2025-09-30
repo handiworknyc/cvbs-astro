@@ -1,0 +1,90 @@
+---
+/**
+ * SmartImage.astro — outputs a single <img>.
+ * Pair with src/scripts/smartimage.ts.
+ *
+ * Props:
+ *  - images: { xl?: string; large?: string; med?: string|false; small?: string|false }
+ *  - sizes?: string                    (default '(max-width: 1200px) 40vw, 100vw')
+ *  - alt?: string
+ *  - imgClass?: string
+ *  - critical?: boolean                (true => eager + high priority; real src/srcset)
+ *  - postload?: boolean                (adds data-postload="true")
+ *  - cdnHost?: string                  (swap WP host → CDN host)
+ *  - wpHost?: string
+ *  - crossorigin?: ''|'anonymous'|'use-credentials'
+ *  - fetchpriority?: 'auto'|'high'|'low'
+ */
+
+interface ImagesMap { xl?: string; large?: string; med?: string|false; small?: string|false; }
+interface Props {
+  images: ImagesMap;
+  sizes?: string;
+  alt?: string;
+  imgClass?: string;
+  critical?: boolean;
+  postload?: boolean;
+  cdnHost?: string;
+  wpHost?: string;
+  crossorigin?: '' | 'anonymous' | 'use-credentials';
+  fetchpriority?: 'auto' | 'high' | 'low';
+}
+const {
+  images,
+  sizes = '(max-width: 1200px) 40vw, 100vw',
+  alt = '',
+  imgClass = '',
+  critical = false,
+  postload = false,
+  cdnHost,
+  wpHost,
+  crossorigin,
+  fetchpriority = critical ? 'high' : 'low',
+} = Astro.props as Props;
+
+function swapToCDN(url?: string | null): string | null {
+  if (!url) return null;
+  let out = url;
+  if (wpHost && cdnHost) {
+    out = out.replace(new RegExp(`https?:\/\/${wpHost}`, 'i'), `https://${cdnHost}`);
+    out = out.replace(new RegExp(`^${wpHost}`, 'i'), cdnHost);
+  }
+  if (wpHost) {
+    // mirror your old /assets fix
+    out = out.replace(/\/assets(\/?)/, (_m, s) => `https://${wpHost}/assets${s || ''}`);
+  }
+  return out;
+}
+
+// Build srcset with your legacy widths: 1700/1400/1000/600
+type SrcItem = { url: string; w: number };
+const parts: SrcItem[] = [];
+const xl = swapToCDN(images?.xl || null);
+const lg = swapToCDN(images?.large || null);
+const md = images?.med === false ? null   : swapToCDN(typeof images?.med === 'string' ? images.med : null);
+const sm = images?.small === false ? null : swapToCDN(typeof images?.small === 'string' ? images.small : null);
+
+if (xl) parts.push({ url: xl, w: 1700 });
+if (lg) parts.push({ url: lg, w: 1400 });
+if (md) parts.push({ url: md, w: 1000 });
+if (sm) parts.push({ url: sm, w: 600 });
+
+const srcsetAttr = parts.map(p => `${p.url} ${p.w}w`).join(', ');
+const primary = parts.length ? parts[0].url : (xl || lg || md || sm || '');
+
+const loading = critical ? 'eager' : 'lazy';
+const decoding = critical ? 'sync' : 'async';
+const className = ['hw-lazy-img', imgClass].filter(Boolean).join(' ');
+
+const baseAttrs = {
+  alt,
+  loading,
+  decoding,
+  fetchpriority,
+  ...(crossorigin ? { crossorigin } : {}),
+  ...(postload ? { 'data-postload': 'true' } as any : {}),
+};
+---
+
+<img class={className} src={primary} srcset={srcsetAttr} sizes={sizes} {...baseAttrs} />
+

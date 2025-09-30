@@ -1,0 +1,123 @@
+.mq-outer {
+    box-sizing: content-box
+}
+
+.mq-wrap {
+    flex-wrap: nowrap !important;
+}
+
+.mq-wrap.has-slider {
+    position: absolute;
+    width: auto;
+}
+
+
+.logo-slider {
+	max-width: 1640px;
+	z-index: 0;
+	justify-content: space-evenly !important;
+
+    &.has-slider {
+        left: 50%;
+        transform: translateX(-50%);   
+    }
+}
+
+.logo-slide-inner {
+	padding: 0 2rem
+}
+
+
+@media (max-width: 1199px) {
+	.logo-slider.has-slider {
+		width: 125%;
+		left: 50%;
+	}
+}
+
+.logo-slider:not(.no-slider).has-slider {
+	left: 50%;
+	padding: 0;
+	width: 125% !important;
+	min-width: 125% !important;
+}
+
+// .logo_slider-module .mq-outer.blur:not(.no-slider) {
+	// &:before,
+	// &:after {
+	// 	backdrop-filter: blur(22px);
+	// 	content: '';
+	// 	position: absolute;
+	// 	top: 0;
+	// 	width: 20vw;
+	// 	height: 100%;
+// 
+	// 	z-index: 10;
+	// }
+	// 
+	// &:before {
+	// 	-webkit-mask-image: linear-gradient(to left, transparent, black);
+	// 	mask-image: linear-gradient(to left, transparent, black);
+	// 	-webkit-mask-repeat: no-repeat;
+	// 	left: 0;
+	// }
+	// 
+	// &:after {
+	// 	-webkit-mask-image: linear-gradient(to right, transparent, black);
+	// 	mask-image: linear-gradient(to right, transparent, black);
+	// 	-webkit-mask-repeat: no-repeat;
+	// 	right: 0
+	// }
+// }
+
+.logo-slider.no-slider {
+	left: auto;
+	transform: translateX(0);
+}
+
+.logo-slide {
+	flex: 1;
+	position: relative;
+	flex-shrink: 0;
+	align-content: center;
+	padding: 0;
+	justify-content: center
+}
+
+.logo-slider img {
+	width: 100%; 
+}
+.logo-slider img:not(.square) {
+	max-width: 15rem
+}
+
+.logo-slider img.lg {
+	max-height: 4rem
+}
+.logo-slider .square {
+	max-width: 10rem;
+	max-height: 6rem
+}
+
+@media (max-width: 599px) {
+	.logo-slider img {
+		min-width: 4.5rem
+	}
+	.logo-slider img:not(.square) {
+		min-width: 6rem;
+	}
+}
+
+.mq-wrap.no-slider {
+	position: relative
+}
+
+.no-slider .logo-slide {
+	height: auto !important;
+	position: relative !important;
+	-moz-transform: none !important;
+	-webkit-transform: none !important;
+	-o-transform: none !important;
+	-ms-transform: none !important;
+	transform: none !important;
+}

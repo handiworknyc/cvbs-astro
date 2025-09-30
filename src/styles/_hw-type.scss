@@ -1,0 +1,731 @@
+// helper: convert old `/@px` notation to rem (px ÷ 12)
+$rem-base: 12;
+@function rem($n) { @return ($n / $rem-base) * 1rem; }
+
+/* =============================================================================
+	Type
+   ========================================================================== */
+
+.bo { font-weight: 700 !important; }
+.semi { font-weight: 600 !important; }
+.reg { font-weight: 400 !important; }
+.med { font-weight: 500 !important; }
+.lite { font-weight: 300 !important; }
+.thin { font-weight: 200 !important; }
+.xlite { font-weight: 100 !important; }
+
+.em { font-style: italic; }
+.caps { text-transform: uppercase; }
+.lower { text-transform: lowercase; }
+.ttn { text-transform: none; }
+
+.tdn,
+.tdn * { text-decoration: none !important; }
+
+.tdu { text-decoration: underline; }
+
+.post-content h1,
+.post-content h2,
+.post-content h3,
+.post-content h4,
+.post-content h5,
+.post-content h6 {
+  margin-bottom: rem(18);
+  padding-top: rem(30);
+  font-weight: normal;
+  letter-spacing: -.02em;
+}
+
+.post-content h4,
+.post-content h5,
+.post-content h6 {
+  padding-top: 2rem;
+  margin-bottom: 1rem;
+}
+
+/*
+.rowindex-1 .banner-text {
+	&.post-content h1,
+	&.post-content h2,
+	&.post-content h3,
+	&.post-content h4,
+	&.post-content h5,
+	&.post-content h6 {
+		font-weight: 500
+	}
+}
+*/
+
+.post-content .delta {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    padding-top: rem(36);
+    margin-bottom: rem(36);
+  }
+}
+
+.post-content.gamma {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    padding-top: rem(42);
+    margin-bottom: rem(42);
+  }
+}
+
+.banner-text :is(h1,h2,h3,h4,h5,h6) {
+  margin-bottom: rem(30) !important;
+}
+
+.post-content h1 {
+  margin-bottom: rem(36);
+}
+
+:is(h1,h2,h3,h4,h5,h6) {
+  font-weight: normal;
+}
+
+.post-content :is(h1,h2,h3,h4,h5,h6) strong {
+  font-weight: normal;
+}
+
+.post-content--inner > ol > li > :is(h1,h2,h3,h4,h5,h6):first-child,
+.post-content--inner > ul > li > :is(h1,h2,h3,h4,h5,h6):first-child,
+.post-content:first-child > .post-content--inner:first-child > h1:first-child,
+.post-content:first-child > .post-content--inner:first-child > h2:first-child,
+.post-content:first-child > .post-content--inner:first-child > h3:first-child,
+.post-content:first-child > .post-content--inner:first-child > h4:first-child,
+.post-content:first-child > .post-content--inner:first-child > h5:first-child,
+.post-content:first-child > .post-content--inner:first-child > h6:first-child,
+.post-content:first-child > h1:first-child,
+.post-content:first-child > h2:first-child,
+.post-content:first-child > h3:first-child,
+.post-content:first-child > h4:first-child,
+.post-content:first-child > h5:first-child,
+.post-content:first-child > h6:first-child {
+  padding-top: 0;
+}
+
+// mob font vars
+$mob-super: rem(108);
+$mob-super-alt: rem(96);
+$mob-super-alt-lh: rem(96);
+$mob-super-lh: rem(108);
+
+$mob-mega: rem(60);
+$mob-mega-alt: rem(60);
+$mob-mega-lh: rem(51);
+$mob-mega-alt-lh: rem(51);
+$mob-mega-lh-title: rem(51);
+
+$mob-alpha-alt: rem(60);
+$mob-alpha-alt-lh: rem(66);
+
+$mob-alpha: rem(42);
+$mob-alpha-lh: rem(45);
+$mob-alpha-lh-title: rem(45);
+
+$mob-beta: rem(30);
+$mob-beta-alt: rem(25);
+$mob-beta-alt-lh: rem(30);
+$mob-beta-lh: rem(30);
+$mob-beta-lh-title: rem(30);
+
+$mob-gamma: rem(36);
+$mob-gamma-lh: rem(48);
+$mob-gamma-lh-title: rem(42);
+
+$mob-delta: rem(19);
+$mob-delta-alt: rem(19);
+$mob-delta-lh: rem(27);
+$mob-delta-lh-title: rem(24);
+
+$mob-zeta: rem(18);
+$mob-zeta-alt: rem(18);
+$mob-zeta-lh: rem(27);
+$mob-zeta-lh-title: rem(24);
+
+$mob-theta: rem(16);
+$mob-theta-lh: rem(24);
+$mob-theta-lh-title: rem(21);
+
+$mob-theta-alt: rem(15);
+$mob-theta-alt-lh: rem(21);
+
+$mob-eta: rem(16);
+$mob-eta-lh: rem(24);
+$mob-eta-lh-title: rem(21);
+
+$mob-iota: rem(15.5);
+$mob-iota-lh: rem(24);
+$mob-iota-lh-title: rem(21);
+
+// large font vars
+$super: rem(108);
+$super-alt: rem(96);
+$super-alt-lh: rem(96);
+$super-lh: 8.75rem;
+
+$mega: rem(90);
+$mega-alt: rem(78);
+$mega-lh: rem(102);
+$mega-lh-title: rem(90);
+$mega-alt-lh: rem(78);
+
+$alpha-alt: rem(62);
+$alpha-alt-lh: rem(66);
+
+$alpha: rem(52);
+$alpha-lh: rem(60);
+$alpha-lh-title: rem(54);
+
+$beta: rem(42);
+$beta-alt: rem(48);
+$beta-alt-lh: rem(54);
+$beta-lh: rem(48);
+$beta-lh-title: rem(42);
+
+$gamma: rem(30);
+$gamma-lh: rem(39);
+$gamma-lh-title: rem(33);
+
+$delta: rem(27);
+$delta-alt: rem(30);
+$delta-lh: rem(36);
+$delta-lh-title: rem(33);
+
+$zeta: rem(22);
+$zeta-alt: rem(24);
+$zeta-lh: rem(33);
+$zeta-lh-title: rem(30);
+
+$theta: rem(20);
+$theta-lh: rem(30);
+$theta-lh-title: rem(27);
+
+$theta-alt: rem(17.5);
+$theta-alt-lh: rem(24);
+
+$eta: rem(16);
+$eta-lh: rem(24);
+$eta-lh-title: rem(21);
+
+$iota: rem(15.5);
+$iota-lh: rem(24);
+$iota-lh-title: rem(21);
+
+// large font vars (lg-*)
+$lg-super: rem(108);
+$lg-super-alt: rem(96);
+$lg-super-alt-lh: rem(96);
+$lg-super-lh: rem(108);
+
+$lg-mega: rem(90);
+$lg-mega-alt: rem(78);
+$lg-mega-lh: rem(102);
+$lg-mega-lh-title: rem(96);
+$lg-mega-alt-lh: rem(69);
+
+$lg-alpha-alt: rem(78);
+$lg-alpha-alt-lh: rem(72);
+
+$lg-alpha: rem(52);
+$lg-alpha-lh: rem(60);
+$lg-alpha-lh-title: rem(48);
+
+$lg-beta: rem(42);
+$lg-beta-alt: rem(48);
+$lg-beta-alt-lh: rem(54);
+$lg-beta-lh: rem(48);
+$lg-beta-lh-title: rem(42);
+
+$lg-gamma: rem(32);
+$lg-gamma-lh: rem(42);
+$lg-gamma-lh-title: rem(33);
+
+$lg-delta: rem(27);
+$lg-delta-alt: rem(30);
+$lg-delta-alt-lh: rem(42);
+
+$lg-delta-lh: rem(36);
+$lg-delta-lh-title: rem(33);
+
+$lg-zeta: rem(22);
+$lg-zeta-alt: rem(24);
+$lg-zeta-lh: rem(33);
+$lg-zeta-lh-title: rem(30);
+
+$lg-theta: rem(20);
+$lg-theta-lh: rem(30);
+$lg-theta-lh-title: rem(27);
+
+$lg-theta-alt: rem(17.5);
+$lg-theta-alt-lh: rem(27);
+
+$lg-eta: rem(16);
+$lg-eta-lh: rem(24);
+$lg-eta-lh-title: rem(21);
+
+$lg-iota: rem(15.5);
+$lg-iota-lh: rem(24);
+$lg-iota-lh-title: rem(21);
+
+.post-content h2 {
+  font-size: $mob-alpha;
+  line-height: $mob-alpha-lh;
+}
+
+.post-content h3 {
+  font-size: $mob-delta;
+  line-height: $mob-delta-lh;
+}
+
+.sub-sec-left-text h3,
+.sub-sec-text h3,
+.post-content h1 {
+  font-size: $mob-mega;
+  line-height: $mob-mega-lh;
+}
+
+.post-content h4 {
+  font-size: $mob-zeta;
+  line-height: $mob-zeta-lh;
+}
+
+.post-content h5 {
+  font-size: $mob-theta;
+  line-height: $mob-theta-lh;
+}
+
+// 1300px to 500
+@media (min-width: 900px) and (min-height: 500px) {
+  .post-content h2 {
+    font-size: $alpha;
+    line-height: $alpha-lh;
+  }
+
+  .banner-text.post-content h2 {
+    line-height: $alpha-lh-title !important;
+  }
+
+  .single .post-content h2 {
+    font-size: rem(27);
+    line-height: rem(36);
+  }
+
+  .post-content h3 {
+    font-size: $delta;
+    line-height: $delta-lh;
+  }
+
+  .post-content h1 {
+    font-size: $mega;
+    line-height: $mega-lh;
+  }
+
+  .post-content h4 {
+    font-size: $zeta;
+    line-height: $zeta-lh;
+  }
+
+  .post-content h5 {
+    font-size: $theta;
+    line-height: $theta-lh;
+  }
+} /* end media query */
+
+// 1440 to 1080
+@media (min-width: 1440px) and (min-height: 900px) {
+  .post-content h2 {
+    font-size: $lg-alpha;
+    line-height: $lg-alpha-lh;
+  }
+
+  .single .post-content h2 {
+    font-size: rem(27);
+    line-height: rem(36);
+  }
+
+  .post-content h3 {
+    font-size: rem(32);
+    line-height: $lg-delta-lh;
+  }
+
+  .post-content h1 {
+    font-size: $lg-mega;
+    line-height: $lg-mega-lh;
+  }
+
+  .post-content h4 {
+    font-size: $lg-zeta;
+    line-height: $lg-zeta-lh;
+  }
+
+  .post-content h5 {
+    font-size: $lg-theta;
+    line-height: $lg-theta-lh;
+  }
+}
+
+.mega, .post-content .mega {
+  font-size: $mob-mega;
+  line-height: $mob-mega-lh;
+}
+
+.mega.title-lh, .post-content .mega.title-lh {
+  line-height: $mob-mega-lh-title;
+}
+
+.mega-alt {
+  font-size: $mob-mega-alt;
+  line-height: $mob-mega-alt-lh;
+}
+
+.super, .post-content .super {
+  font-size: $mob-super;
+  line-height: $mob-super-lh;
+}
+
+.alpha, .post-content .alpha {
+  font-size: $mob-alpha;
+  line-height: $mob-alpha-lh;
+}
+
+.alpha-alt, .post-content .alpha-alt {
+  font-size: $mob-alpha-alt;
+  line-height: $mob-alpha-alt-lh;
+}
+
+.beta, .post-content .beta {
+  font-size: $mob-beta;
+  line-height: $mob-beta-lh;
+}
+
+.gamma, .post-content .gamma {
+  font-size: $mob-gamma;
+  line-height: $mob-gamma-lh;
+}
+
+.post-content .gamma {
+  font-size: rem(21);
+  line-height: rem(30);
+}
+
+.delta, .post-content .delta {
+  font-size: $mob-delta;
+  line-height: $mob-delta-lh;
+}
+
+.delta.title-lh, .post-content .delta.title-lh {
+  line-height: $mob-delta-lh-title;
+}
+
+.post-content .delta {
+  line-height: rem(30);
+}
+
+.zeta, .post-content .zeta {
+  font-size: $mob-zeta;
+  line-height: $mob-zeta-lh;
+}
+
+.zeta.title-lh, .post-content .zeta.title-lh {
+  line-height: $mob-zeta-lh-title;
+}
+
+.theta, .post-content .theta {
+  font-size: $mob-theta;
+  line-height: $mob-theta-lh;
+}
+
+.theta-alt, .post-content .theta-alt {
+  font-size: $mob-theta-alt;
+  line-height: $mob-theta-alt-lh;
+}
+
+.theta.title-lh, .post-content .theta.title-lh {
+  line-height: $mob-theta-lh-title;
+}
+
+.eta, .post-content .eta {
+  font-size: $mob-eta;
+  line-height: $mob-eta-lh;
+}
+
+.eta.title-lh, .post-content .eta.title-lh {
+  line-height: $mob-eta-lh-title;
+}
+
+.iota, .post-content .iota {
+  font-size: $mob-iota;
+  line-height: $mob-iota-lh;
+}
+
+/*
+@media (max-width: 479px) {
+	.mega {
+		font-size: 33/@px;
+		line-height: 36/@px
+	}
+	
+	.delta {
+		font-size: 20/@px;
+		line-height: 27/@px
+	}
+	
+	.zeta {
+		font-size: 18/@px;
+		line-height: 24/@px
+	}
+}
+
+@media (max-width: 329px) {
+	.super {
+		font-size: 45/@px;
+		line-height: 42/@px
+	}
+}
+*/
+
+//760 , 500
+@media (min-width: 760px) and (min-height: 500px) {
+  .mega, .post-content .mega {
+    font-size: $mega;
+    line-height: $mega-lh;
+  }
+
+  .mega.title-lh, .post-content .mega.title-lh {
+    line-height: $mega-lh-title;
+  }
+
+  .mega.mega-alt {
+    font-size: $mega-alt;
+    line-height: $mega-alt-lh;
+  }
+
+  .super, .post-content .super {
+    font-size: $super;
+    line-height: $super-lh;
+  }
+
+  .banner-text h1,
+  .banner-text h2,
+  .alpha, .post-content .alpha {
+    font-size: $alpha;
+    line-height: $alpha-lh;
+  }
+
+  .alpha.title-lh, .post-content .alpha.title-lh {
+    line-height: $alpha-lh-title;
+  }
+
+  .alpha-alt {
+    font-size: $alpha-alt;
+    line-height: $alpha-alt-lh;
+  }
+
+  .beta-alt, .post-content .beta-alt,
+  .beta, .post-content .beta {
+    font-size: $beta;
+    line-height: $beta-lh;
+  }
+
+  .gamma, .post-content .gamma {
+    font-size: $gamma;
+    line-height: $gamma-lh;
+  }
+
+  .post-content .gamma {
+    line-height: rem(36);
+  }
+
+  .gamma.title-lh, .post-content .gamma.title-lh {
+    line-height: $gamma-lh-title;
+  }
+
+  .delta, .post-content .delta {
+    font-size: $delta;
+    line-height: $delta-lh;
+  }
+
+  .delta.title-lh, .post-content .delta.title-lh {
+    line-height: $delta-lh-title;
+  }
+
+  .is-xl-1 .delta.full-bleed-banner-text {
+    font-size: rem(33);
+    line-height: rem(39);
+  }
+
+  .post-content .delta {
+    line-height: rem(30);
+  }
+
+  .zeta, .post-content .zeta {
+    font-size: $zeta;
+    line-height: $zeta-lh;
+  }
+
+  .zeta-alt, .post-content .zeta-alt {
+    font-size: $lg-zeta-alt;
+  }
+
+  .centered-content.zeta-alt {
+    line-height: 3rem;
+  }
+
+  .zeta.title-lh, .post-content .zeta.title-lh {
+    line-height: $zeta-lh-title;
+  }
+
+  .theta, .post-content .theta {
+    font-size: $theta;
+    line-height: $theta-lh;
+  }
+
+  .theta.title-lh, .post-content .theta.title-lh {
+    line-height: $theta-lh-title;
+  }
+
+  .theta-alt, .post-content .theta-alt {
+    font-size: $theta-alt;
+    line-height: $theta-alt-lh;
+  }
+
+  .eta, .post-content .eta {
+    font-size: $eta;
+    line-height: $eta-lh;
+  }
+
+  .eta.title-lh, .post-content .eta.title-lh {
+    line-height: $eta-lh-title;
+  }
+
+  .iota, .post-content .iota {
+    font-size: $iota;
+    line-height: $iota-lh;
+  }
+} /* end media query */
+
+//1440 to 500
+@media (min-width: 1440px) and (min-height: 500px) {
+  .mega.mega-alt {
+    font-size: $lg-mega-alt;
+    line-height: $lg-mega-alt-lh;
+  }
+
+  .alpha.alpha-alt {
+    font-size: $lg-alpha-alt;
+    line-height: $lg-alpha-alt-lh;
+  }
+
+  .delta, .post-content .delta {
+    font-size: $lg-delta;
+    line-height: $lg-delta-lh;
+  }
+
+  .delta.title-lh, .post-content .delta.title-lh {
+    line-height: $lg-delta-lh-title;
+  }
+
+  .delta-alt, .post-content .delta-alt {
+    font-size: $lg-delta-alt;
+    line-height: $lg-delta-alt-lh;
+  }
+
+  .delta.sec-text,
+  .post-content .delta {
+    line-height: rem(36);
+  }
+
+  .zeta, .post-content .zeta {
+    font-size: $lg-zeta;
+    line-height: $lg-zeta-lh;
+  }
+
+  .zeta-alt, .post-content .zeta-alt {
+    font-size: $lg-zeta-alt;
+  }
+
+  .centered-content.zeta-alt {
+    line-height: 3.25rem;
+  }
+
+  .zeta.title-lh, .post-content .zeta.title-lh {
+    line-height: $lg-zeta-lh-title;
+  }
+
+  .three-col {
+    .zeta.title-lh, .post-content .zeta.title-lh {
+      line-height: rem(27);
+    }
+  }
+
+  .theta, .post-content .theta {
+    font-size: $lg-theta;
+    line-height: $lg-theta-lh;
+  }
+
+  .theta.title-lh, .post-content .theta.title-lh {
+    line-height: $lg-theta-lh-title;
+  }
+
+  .theta-alt, .post-content .theta-alt {
+    font-size: $lg-theta-alt;
+    line-height: $lg-theta-alt-lh;
+
+    &.title-lh {
+      line-height: 2rem;
+    }
+  }
+
+  .eta, .post-content .eta {
+    font-size: $lg-eta;
+    line-height: $lg-eta-lh;
+  }
+
+  .eta.title-lh, .post-content .eta.title-lh {
+    line-height: $lg-eta-lh-title;
+  }
+
+  .iota, .post-content .iota {
+    font-size: $lg-iota;
+    line-height: $lg-iota-lh;
+  }
+  /*
+	.iota.title-lh, .post-content .iota.title-lh {
+		line-height: @lg-iota-lh-title
+	}
+*/
+} /* end media query */
+
+.small {
+  font-size: rem(14) !important;
+  line-height: rem(21) !important;
+}
+
+.smaller {
+  font-size: rem(13) !important;
+  line-height: rem(18) !important;
+}
+
+.micro {
+  font-size: rem(12);
+  line-height: rem(15);
+}
+
+.micro.caps {
+  letter-spacing: rem(1.8);
+}
+
+.nano {
+  font-size: rem(10);
+  line-height: rem(15);
+}

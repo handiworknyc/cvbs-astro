@@ -1,0 +1,16 @@
+---
+import BaseLayout from "../layouts/MainLayout.astro";
+import LayoutRenderer from "../lib/wp/LayoutRenderer.astro";
+import { getFlexiblePageByUri } from "../lib/api";
+
+// homepage is always `/`
+const page = getFlexiblePageByUri("/");
+
+if (!page) {
+  throw new Error("No home.json flexible content found in src/content/wp/pages/");
+}
+---
+
+<BaseLayout title={page.title}>
+  <LayoutRenderer layouts={page.layouts || []} />
+</BaseLayout>

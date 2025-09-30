@@ -1,0 +1,99 @@
+.jsVhUnits100 {
+    height: var(--jsVhUnits100);
+}
+
+html.hw-global-resizing body *,
+html.hw-global-resizing *:after,
+html.hw-global-resizing *:before,
+html.hw-global-resizing * {
+	-webkit-transition: none 0s ease !important;
+    -moz-transition: none 0s ease !important;
+    -o-transition: none 0s ease !important;
+    -ms-transition: none 0s ease !important;
+    transition: none 0s ease !important;
+}
+
+svg {
+	display: block
+}
+strong {
+	font-weight: bold;
+}
+
+.pr {
+    position: relative;
+}
+
+.abs {
+    position: absolute;
+}
+
+.abs-full {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.block {
+    display: block;
+}
+
+.w100 {
+    width: 100%;
+}
+.align-items-center {
+    align-items: center;
+}
+
+.ofh {
+    overflow: hidden;
+}
+
+.tac {
+    text-align: center !important;
+}
+
+
+.lilblur {
+	text-shadow: 0 0 1px rgba(0,0,0, .1)
+}
+
+html:not(.ua-safari) {
+	.lilblur {
+		filter: blur(.15px)
+	}
+}
+
+
+[class*="flex-wrap"] {
+    display: flex;
+	justify-content: center;
+	-webkit-flex-wrap: wrap;
+	-ms-flex-wrap: wrap;
+	flex-wrap: wrap;
+	
+    &.tal {
+        justify-content: flex-start;
+    }
+	&.rtl {	
+		-webkit-flex-direction: row-reverse;
+		-ms-flex-direction: row-reverse;
+		flex-direction: row-reverse;
+		justify-content: right
+	}	
+	
+	& > .flex-item {
+		align-items: stretch;
+		float: none !important;
+		-ms-flex-direction: column;
+		flex-direction: column;		
+
+		& > * {
+			-ms-flex-direction: row;
+			flex-direction: row;
+			max-width: 100%;
+		}
+	}
+}

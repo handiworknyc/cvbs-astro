@@ -1,0 +1,162 @@
+---
+/**
+ * Footer.astro
+ * - Fetches site phone/email from WP REST: /wp-json/hw/v1/options
+ * - Props override API (sitePhone prop wins if provided)
+ *
+ * Env:
+ *   import.meta.env.WP_BASE_URL  // e.g. https://example.com
+ */
+
+const WP_BASE_URL = import.meta.env.WP_BASE_URL || "";
+
+/** ---- Types ---- */
+interface Props {
+  sitePhone?: string;         // optional override (wins over API)
+  phoneIconSrc?: string;      // default based on WP_BASE_URL
+  mapImagePath?: string;      // path relative to WP_BASE_URL
+  quoteHref?: string;         // CTA link
+}
+
+const {
+  sitePhone: sitePhoneProp,
+  phoneIconSrc = WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg` : "/phone.svg",
+  mapImagePath = "/wp-content/uploads/2025/08/map-bg.png",
+  quoteHref = "#quote",
+} = Astro.props as Props;
+
+/** ---- Fetch options from WP (server-side) ---- */
+let apiPhone = "";
+try {
+  if (WP_BASE_URL) {
+    const res = await fetch(`${WP_BASE_URL}/wp-json/hw/v1/options`, { cache: "no-store" });
+    if (res.ok) {
+      const json = await res.json();
+      apiPhone = (json?.site_phone ?? "").toString();
+    } else {
+      console.warn("[Footer] Options fetch failed:", res.status, res.statusText);
+    }
+  } else {
+    console.warn("[Footer] WP_BASE_URL is missing; skipping options fetch.");
+  }
+} catch (e) {
+  console.warn("[Footer] Options fetch error:", e);
+}
+
+/** Final phone: prop overrides API */
+const sitePhone = (sitePhoneProp && String(sitePhoneProp)) || apiPhone || "";
+
+/** Map image absolute URL */
+const mapImageSrc = WP_BASE_URL ? `${WP_BASE_URL}${mapImagePath}` : mapImagePath;
+
+/** Build tel: href from human-readable phone */
+function telHref(num: string) {
+  const digits = (num || "").replace(/[^\d+]/g, "");
+  return digits ? `tel:${digits}` : "";
+}
+---
+
+<footer id="the-footer" class="mt-40 pr zindex10 mb-40">
+  <div class="hw-contain">
+    <div class="w100 tal footer-cta flex" data-scroll-css-progress data-scroll>
+      <div class="footer-cta-inner flex tal">
+        <div class="footer-cta-left flex">
+          <h2 class="round-vw-lh footer-cta-left-heading lilblur ls-5" data-sal="slide-up" data-sal-duration="1800">
+            What are you<br />Waiting for?
+          </h2>
+        </div>
+
+        <div class="footer-cta-right ofh pr">
+          <h3 class="footer-cta-right-header lilblur wrap-chars ls-5 pr w100">
+            <span class="min-[900px]:block hidden">Get in Touch</span>
+            <span class="min-[900px]:hidden block">Reach<br /> Out</span>
+          </h3>
+
+          <div class="abs-full footer-cta-right-content flex align-items-center justify-center tal">
+            <div
+              itemscope
+              itemtype="https://schema.org/Organization"
+              class="address-wrap icon-marker flex tal eyebrow"
+            >
+              <div>
+                <!-- Long Island Office -->
+                <div
+                  class="flex tal address"
+                  itemscope
+                  itemtype="https://schema.org/PostalAddress"
+                  itemprop="address"
+                >
+                  <h3>Long Island Office:</h3>
+                  <p>
+                    <span itemprop="streetAddress">50 Vanderbilt Motor Pkwy</span>,
+                    <span itemprop="addressLocality">Commack</span>
+                    <span itemprop="addressRegion">NY</span>
+                    <span itemprop="postalCode">11725</span>
+                  </p>
+                </div>
+
+                <!-- NYC Office -->
+                <div
+                  class="flex tal address"
+                  itemscope
+                  itemtype="https://schema.org/PostalAddress"
+                  itemprop="address"
+                >
+                  <h3>New York City Office:</h3>
+                  <p>
+                    <span itemprop="streetAddress">421 Seventh Ave</span>,
+                    <span itemprop="addressLocality">New York</span>
+                    <span itemprop="addressRegion">NY</span>
+                    <span itemprop="postalCode">10001</span>
+                  </p>
+                </div>
+
+                <!-- Hours -->
+                <p>
+                  <time itemprop="openingHours" datetime="Mo-Fr 09:00-17:00">
+                    Mon – Fri (9am – 5pm)
+                  </time>
+                </p>
+              </div>
+            </div>
+
+            <div class="footer-cta-btns eyebrow flex justify-center gap-4 abs w100">
+              <a
+                class="footer-btn icon-after flex align-items-center icon-arrow-right footer-btn"
+                href={quoteHref}
+              >
+                <span>Get an Estimate</span>
+              </a>
+
+              <a
+                class="footer-btn tel bg-gold flex align-items-center"
+                href={telHref(sitePhone)}
+                aria-label={sitePhone ? `Call us at ${sitePhone}` : "Call us"}
+              >
+                <img
+                  class="footer-btn-phone-icon of-contain"
+                  src={phoneIconSrc}
+                  alt="Phone icon"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <span class="hidden min-[700px]:inline-block">CALL US:</span>
+                {sitePhone || ""}
+              </a>
+            </div>
+          </div>
+        </div>
+      </div> <!-- /.footer-cta-inner -->
+    </div> <!-- /.footer-cta -->
+  </div> <!-- /.hw-contain -->
+</footer>
+
+<img
+    data-scroll
+    decoding="async"
+    loading="lazy"
+    fetchpriority="low"
+    src={mapImageSrc}
+    class="map-parallax"
+    alt="Map background"
+/>

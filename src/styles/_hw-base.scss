@@ -1,0 +1,176 @@
+$colors: (
+  turq: #13c1aa,
+  white: #fff,
+  lightgreen: #daf5d4ff,
+  brandgreen: #009c5fff,
+  turqoise: #5be7a9ff,
+  fieldgreen: #6ec189ff,
+  coral: #ff988aff,
+  darkgreen: #164030ff,
+  redaccent: #ff4400ff,
+  darkbluetext: #24454bff,
+  gold: #ffbf00ff,
+  mint: #e7efeeff,
+  mintdark: #CCDDDB,
+);
+
+:root {
+  @each $name, $value in $colors {
+    --#{"" + $name}: #{$value};
+  }
+}
+
+@mixin generate-color-classes($map) {
+  @each $name, $value in $map {
+    .c-#{"" + $name} { color: var(--#{"" + $name}) !important; }
+    .bg-#{"" + $name} { background-color: var(--#{"" + $name}) !important; }
+  }
+}
+
+@include generate-color-classes($colors);
+
+html {
+    --jsVhUnits100: 100vh;
+    --cubicBez: cubic-bezier(.36,.01,.1,1.01);
+}
+
+
+
+
+
+
+
+
+
+
+body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+	font-family: 'Uncut';
+	position: relative;
+	background: var(--mint);
+	letter-spacing: -.025em;
+}
+
+html,
+body,
+button,
+a {
+	color: var(--darkbluetext)
+}
+
+
+.ls-5 {
+	letter-spacing: -.05em
+}
+
+.project-card-thumb:before,
+.proj-overlay-text h3,
+.eyebrow,
+.clash {
+	font-family: 'Barlow';
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: .05em
+}
+
+[class*='icon-']:after,
+[class*='icon-']:before {
+	font-weight: normal !important
+}
+
+.proj-overlay-text h3 {
+	font-weight: 500;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+.header-quote-btn,
+.single-proj-next-wrap,
+.single-proj-next-wrap img,
+.single-proj-next-img-wrap:before,
+.dd-toggle,
+.blog-prev-inner,
+.blog-prev-img-wrap:before,
+.blog-prev-img-wrap .blog-prev-img {
+	transition: all 0.225s var(--cubicBez);
+}
+
+.single-proj-banner-gal-thumb-prev:last-child,
+.single-proj-gal-3-img,
+.project-card-tags,
+.project-card-thumb:after,
+.project-card-thumb:before,
+.project-card-link,
+.project-card-link img,
+.blog-prev-cat,
+.news-link img,
+.news-media:before,
+a.img-card-item .img-card-inner,
+.resp-header-menu-sub-toggle svg,
+.menu-item-has-children .main-menu-link.depth-0:after,
+#header:after,
+#header:before {
+	transition: all 0.425s var(--cubicBez);
+}
+
+.num-block-li,
+.area-card-inner,
+.depth-0 > .header-link--title:before,
+.sub-menu-link-border span:before,
+.sub-menu-link.depth-1 img {
+	transition: all 0.625s var(--cubicBez);
+}
+
+.num-block-img,
+.nav-hilite,
+.tr-all {
+	transition: all 1s var(--cubicBez) !important;
+}
+
+.img-card-inner:before {
+	transition: all 1.25s var(--cubicBez);
+}
+
+.single-proj-banner,
+.gfield--type-select,
+.gfield_error .gfield_required,
+.hovered .sub-menu-item {
+	transition: opacity 0.7s var(--cubicBez);
+}
+
+.slides-nav .icon-arrow-right,
+.home-banner-slides-inner,
+.banner-form-wrap {
+	transition: opacity 0.25s var(--cubicBez);
+}
+
+.vert-mq-item,
+.spinner,
+.gform-body,
+#form-badge,
+.form-intro-text,
+.tr-opacity {
+	transition: opacity 1s var(--cubicBez);
+}
+
+/* Character animation */
+.wrap-chars .charParent {
+	will-change: opacity;
+	--charProg: 0;
+	opacity: calc(var(--charProg) * 1.1);
+}
+
+.footer-cta-left-heading.wrap-chars .charParent {
+	opacity: calc(var(--charProg) * 1.9);
+}

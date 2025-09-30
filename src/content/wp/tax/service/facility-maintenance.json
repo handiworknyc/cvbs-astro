@@ -1,0 +1,85 @@
+{
+  "kind": "term",
+  "taxonomy": "service",
+  "term_id": 7,
+  "slug": "facility-maintenance",
+  "title": "Facility Maintenance",
+  "layouts": [
+    {
+      "acf_fc_layout": "logo_slider",
+      "layout_settings": {
+        "bg_color": "none"
+      },
+      "pull_from": {
+        "ID": 5,
+        "post_author": "1",
+        "post_date": "2025-08-18 23:29:53",
+        "post_date_gmt": "2025-08-18 23:29:53",
+        "post_content": "",
+        "post_title": "Home",
+        "post_excerpt": "",
+        "post_status": "publish",
+        "comment_status": "closed",
+        "ping_status": "closed",
+        "post_password": "",
+        "post_name": "home",
+        "to_ping": "",
+        "pinged": "",
+        "post_modified": "2025-09-25 03:37:26",
+        "post_modified_gmt": "2025-09-25 03:37:26",
+        "post_content_filtered": "",
+        "post_parent": 0,
+        "guid": "https://clbr.local/?page_id=5",
+        "menu_order": 0,
+        "post_type": "page",
+        "post_mime_type": "",
+        "comment_count": "0",
+        "filter": "raw"
+      },
+      "logos": false
+    },
+    {
+      "acf_fc_layout": "image_cards",
+      "layout_settings": {
+        "bg_color": "none"
+      },
+      "pull_from": false,
+      "pull_from_tax": [
+        {
+          "term_id": 8,
+          "name": "General Contracting",
+          "slug": "general-contracting",
+          "term_group": 0,
+          "term_taxonomy_id": 8,
+          "taxonomy": "service",
+          "description": "",
+          "parent": 0,
+          "count": 24,
+          "filter": "raw"
+        }
+      ],
+      "section_title": "Our Facility Maintenance Services",
+      "section_text": "",
+      "bg_img_cards": false,
+      "layout": "4",
+      "cards": false
+    },
+    {
+      "acf_fc_layout": "project_slider",
+      "layout_settings": {
+        "bg_color": "none"
+      },
+      "section_title": "Our Facility Maintenance Services Portfolio",
+      "bg_white": true
+    },
+    {
+      "acf_fc_layout": "blog",
+      "layout_settings": {
+        "bg_color": "none"
+      },
+      "slider": false,
+      "taxonomy": ""
+    }
+  ],
+  "_syncedAt": "2025-09-30 05:37:57"
+}

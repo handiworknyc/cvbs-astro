@@ -1,0 +1,139 @@
+---
+/**
+ * services_areas_slider.astro
+ */
+
+import { getProjectFeaturedAndArea } from "@/lib/wp/project";
+
+type Link = { url?: string } | string;
+type ProjectImage = { src?: string; alt?: string; sizes?: Record<string, string> };
+type Project = { ID?: number; title?: string; areaTitle?: string; image?: ProjectImage | null } | null;
+type ListItem = { text?: string; link?: Link; project?: Project };
+type AreaCard = { nav_title?: string; card_title?: string; list?: ListItem[] };
+
+interface Props {
+  areas_of_service?: AreaCard[];
+  section_title?: string;
+  section_text?: string;
+  layout?: number | string;
+}
+
+const { areas_of_service = [], layout = 1 } = Astro.props as Props;
+
+async function enrichAreas(areas: AreaCard[]): Promise<AreaCard[]> {
+  const out: AreaCard[] = [];
+  for (const area of areas) {
+    const list = area.list || [];
+    const newList: ListItem[] = [];
+    for (const li of list) {
+      let project = li.project;
+      if (project?.ID && (!project.image || !project.title)) {
+        const enriched = await getProjectFeaturedAndArea(project.ID);
+
+        project = {
+          ID: project.ID,
+          title: enriched.title,
+          areaTitle: enriched.areaTitle,
+          image: enriched.image
+        };
+      }
+      newList.push({ ...li, project });
+    }
+    out.push({ ...area, list: newList });
+  }
+  return out;
+}
+
+const enrichedAreas = await enrichAreas(areas_of_service);
+
+const isLayout4 = String(layout) === "4";
+const flexClass = isLayout4 ? "flex-wrap-1520" : "flex-wrap";
+
+function titleHtml(s?: string) {
+  const raw = (s || "").trim();
+  if (!raw) return "";
+  const parts = raw.split(/\r?\n/).filter(Boolean);
+  if (parts.length > 1) {
+    return `
+      <h2 class="icon-marker area-card-title">
+        <span class="area-card-title-l1">${parts[0]}</span>
+        <span class="area-card-title-l2">${parts[1]}</span>
+      </h2>
+    `;
+  }
+  return `<h2 class="area-card-title pt-4 ls-5">${raw}</h2>`;
+}
+
+function hrefFrom(link?: Link): string {
+  if (!link) return "";
+  return typeof link === "string" ? link : (link.url || "");
+}
+
+function renderProjectBlock(p?: Project): string {
+  if (!p || !p.image) return "";
+
+  const img = p.image!;
+  const src = (img.sizes && (img.sizes.intch_sm || img.sizes["intch_sm"])) || img.src || "";
+  if (!src) return "";
+
+  const alt = (img.alt || "").replace(/"/g, "&quot;");
+  const projTitle = (p?.title || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const areaTitle = (p?.areaTitle || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  return `
+    <div class="area-cart-img-inner abs-full pr">
+      <div class="c-white abs-full vert-mq-item-text proj-overlay-text flex-wrap tal">
+        <div>
+          ${projTitle ? `<h3 class="caps">${projTitle}</h3>` : ""}
+          ${areaTitle ? `<h4 class="icon-marker reg">${areaTitle}</h4>` : ""}
+        </div>
+      </div>
+      <img src="${src}" class="area-card-img" alt="${alt}" fetchpriority="low" loading="lazy" decoding="async" />
+    </div>
+  `;
+}
+
+function renderListParts(list: ListItem[] = []) {
+  let lis = "";
+  let imgs = "";
+  for (const item of list) {
+    const link = hrefFrom(item.link);
+    const text = (item.text || "").trim();
+    lis += `<a href="${link}" class="area-card-list-item block">${text}</a>`;
+    if (item.project) imgs += renderProjectBlock(item.project);
+  }
+  return { textHtml: `<div class="area-card-text pb-8">${lis}</div>`, imgsHtml: imgs };
+}
+---
+
+<div class="hw-contain pb-24 service-area-nav flex-wrap tac">
+  {enrichedAreas.map((area, i) => {
+    const selected = i === 0 ? "selected" : "";
+    const label = area?.nav_title || "";
+    return <button class={`outline-tag eyebrow service-area-nav-btn small ${selected}`}>{label}</button>;
+  })}
+</div>
+
+<div
+  class={`area-card-outer pr hw-slides ${flexClass} equal-height-cells tal area-card-slider`}
+  id={`area-cards-${Math.random().toString(36).slice(2, 10)}`}
+  data-hw-flickity='{"cellAlign":"center"}'
+>
+  {enrichedAreas.map((area) => {
+    const h = titleHtml(area?.card_title);
+    const { textHtml, imgsHtml } = renderListParts(area?.list || []);
+    return (
+      <div class="area-card-item block">
+        <div class="area-card-inner icon-marker flex-wrap">
+          <div class="area-card-text-wrap">
+            <div set:html={h}></div>
+            <div set:html={textHtml}></div>
+          </div>
+          <div class="area-card-img-wrap pr">
+            <div set:html={imgsHtml}></div>
+          </div>
+        </div>
+      </div>
+    );
+  })}
+</div>

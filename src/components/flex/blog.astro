@@ -1,0 +1,94 @@
+---
+import BlogPrevItem from "@/components/BlogPrevItem.astro";
+
+type ImageMap = Record<string, string>;
+interface ImageLike { src?: string; alt?: string; sizes?: ImageMap }
+interface PostLike {
+  id?: number | string;
+  title?: string;
+  date?: string;
+  dateISO?: string;
+  excerpt?: string;
+  permalink?: string;
+  image?: ImageLike | null;
+}
+
+interface TaxTerm { taxonomy: string; term_id: number; name?: string }
+
+interface Props {
+  taxonomy?: TaxTerm[];   // e.g. [{ taxonomy: "service", term_id: 8, name: "Floor Care" }]
+  idPrefix?: string;
+}
+
+const {
+  taxonomy = [],
+  idPrefix = "blog-prev-wrap",
+} = Astro.props as Props;
+
+// ALWAYS fetch from API (server-side)
+const apiURL = new URL("/api/blog-latest.json", Astro.url);
+apiURL.searchParams.set("perPage", "6"); // mirror PHP numberposts
+
+let hasTax = false;
+let taxName = "";
+if (Array.isArray(taxonomy) && taxonomy.length) {
+  hasTax = true;
+  for (const t of taxonomy) {
+    if (t?.taxonomy && t?.term_id != null) {
+      // relies on your WP taxonomy rest_base matching e.g. "service" or "service-area"
+      apiURL.searchParams.append(String(t.taxonomy), String(t.term_id));
+      taxName = t.name || taxName || "";
+    }
+  }
+}
+
+const r = await fetch(apiURL);
+let latestPosts: PostLike[] = [];
+if (r.ok) {
+  const data = await r.json();
+  latestPosts = data.latestPosts ?? [];
+} else {
+  console.error("[blog.astro] API failed:", r.status, await r.text());
+}
+
+
+
+const count = latestPosts.length;
+const uniq = `${idPrefix}-${Math.random().toString(36).slice(2, 10)}`;
+const countClass = `count-${count}`;
+---
+
+{count > 0 && (
+  <div class={`hw-contain pr zindex10 ${countClass}`} id="blog-module-inner">
+    {!hasTax ? (
+      <>
+        <h2 class="inline-block our-blog-tag-wrap">
+          <div class="eyebrow our-blog-tag bg-tag">Our Blog</div>
+        </h2>
+
+			
+        <div class="blog-subtitle lite tac">
+          Exploring trends, tools, and best practices in janitorial and maintenance services.
+        </div>
+      </>
+    ) : (
+      <>
+        <h3 class="inline-block our-blog-tag-wrap">
+          <div class="eyebrow our-blog-tag bg-tag">Our Blog</div>
+        </h3>
+        <h2 class="blog-module-tax-title flex-wrap align-items-center">
+          The latest trends, tools, and best practices in{" "}
+          <span class="reg eyebrow bg-tag bg-gold inline-block c-darkbluetext blog-module-title-tag">
+            {taxName}
+          </span>
+        </h2>
+      </>
+    )}
+
+    <div class="flex-wrap blog-prev-wrap mt-[7rem] hw-slides" id={uniq} data-hw-flickity='{"cellAlign" : "center"}'>
+      {latestPosts.map((p) => (
+        <BlogPrevItem post={p} img_size="intch_med" />
+      ))}
+    </div>
+  </div>
+)}

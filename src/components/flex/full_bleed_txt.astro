@@ -1,0 +1,199 @@
+---
+/**
+ * full_bleed_text.astro
+ * Uses SmartImage + toImagesMap, normalizing WP size keys (intch_*) to {xl,large,med,small}.
+ */
+
+import SmartImage from '@ui/SmartImage.astro';
+import { toImagesMap } from '@images';
+
+interface Props {
+  section_title?: string;
+  section_text?: string;   // HTML
+  image?: any;             // WP media object, plain URL, or {sizes:{...}}
+  body_txt?: string;       // HTML
+  cdnHost?: string;
+  wpHost?: string;
+  critical?: boolean;
+}
+
+const {
+  section_title = '',
+  section_text = '',
+  image,
+  body_txt = '',
+  cdnHost,
+  wpHost,
+  critical = false,
+} = Astro.props as Props;
+
+/** Map a WP sizes bag to the { xl, large, med, small } keys that toImagesMap expects. */
+function mapWpSizesToGeneric(sizes: Record<string, any> = {}) {
+  // Prefer your intch_* sizes; fall back sensibly to core sizes if needed.
+  const xl =
+    sizes.intch_xl ||
+    sizes['2048x2048'] ||
+    sizes.large ||
+    sizes.medium_large ||
+    sizes.medium ||
+    null;
+
+  const large =
+    sizes.intch_lg ||
+    sizes.large ||
+    sizes.medium_large ||
+    sizes.medium ||
+    null;
+
+  const med =
+    sizes.intch_med ||
+    sizes.medium_large ||
+    sizes.medium ||
+    sizes.intch_sm ||
+    null;
+
+  const small =
+    sizes.intch_sm ||
+    sizes.medium ||
+    sizes.thumbnail ||
+    null;
+
+  return { xl, large, med, small };
+}
+
+/** Coerce incoming image into an entry shape that toImagesMap understands. */
+function toEntry(img: any) {
+  if (!img) return null;
+
+  // WP-ish object with many sizes (your console sample)
+  if (img?.sizes && typeof img.sizes === 'object') {
+    const mapped = mapWpSizesToGeneric(img.sizes);
+    return { sizes: mapped, alt: img.alt || img?.alt_text || '' };
+  }
+
+  // Already in the target shape
+  if (img?.sizes && ('xl' in img.sizes || 'large' in img.sizes || 'med' in img.sizes || 'small' in img.sizes)) {
+    return { sizes: img.sizes, alt: img.alt || '' };
+  }
+
+  // Simple object with src/alt
+  if (typeof img === 'object' && typeof img.src === 'string') {
+    return { sizes: { xl: img.src }, alt: img.alt || '' };
+  }
+
+  // Plain URL
+  if (typeof img === 'string') {
+    return { sizes: { xl: img } };
+  }
+
+  return null;
+}
+
+const entry = toEntry(image);
+const images = entry ? toImagesMap(entry) : {};
+const alt =
+  (typeof image === 'object' && (image.alt || image.alt_text)) ||
+  (entry && (entry as any).alt) ||
+  '';
+---
+
+<div class="hw-contain">
+  <div class="img-cards-title-nav flex-wrap-700 min-[700px]:pb-[3.5rem] pb-6 tal align-items-center">
+    <h2 class="section-eyebrow eyebrow min-[700px]:pb-0 pb-6">{section_title}</h2>
+  </div>
+
+  {section_text && (
+    <div
+      class="lg-section-text med mb1 wrap-chars lilblur ls-5 round-vw-lh"
+      set:html={section_text}
+    />
+  )}
+</div>
+
+<div class="pr ofh img-full-bleed-scale-wrap">
+  <div class="pr img-full-bleed-scale">
+    {(images.xl || images.large || images.med || images.small) && (
+      <SmartImage
+        images={images}
+        sizes="100vw"
+        alt={alt}
+        imgClass="img-full-bleed-img obj-cover zindex0 tr-fix"
+        cdnHost={cdnHost}
+        wpHost={wpHost}
+        critical={critical}
+      />
+    )}
+  </div>
+</div>
+
+{body_txt && (
+  <div
+    class="hw-contain two-column-text-full round-vw-lh"
+    set:html={body_txt}
+  />
+)}
+
+
+
+<style>
+
+.img-full-bleed-scale-wrap {
+	backface-visibility: hidden;
+	aspect-ratio: 16/7;	
+	
+	img {
+		mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 30%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%); mask-mode: alpha; mask-repeat: no-repeat; mask-size: 100% 100%;
+		
+		-webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 30%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%); -webkit-mask-repeat: no-repeat; -webkit-mask-size: 100% 100%;  	
+	}
+}
+
+
+.img-full-bleed-scale {
+  height: 100%;
+	//transform: scale( calc(1.15 - (.15 * var(--progress))) ); 
+	transform-origin: center center;
+	will-change: transform
+}
+
+
+.img-full-bleed-img {
+  width: 100%;
+  height: 100%;
+	filter: grayscale(.4);	
+}
+
+
+.two-column-text-full {
+	max-width: 1490px;
+
+	font-size: calc(1rem + .75vw);
+	line-height: 1.3em;
+	
+	p {
+		margin-bottom: 2rem
+	}
+}
+
+@media (max-width: 749px) {
+	.two-column-text-full {
+		max-width: 600px
+	}
+}
+
+@media (min-width: 750px) {
+	.two-column-text-full {
+		font-size: calc(1rem + .55vw);
+		line-height: 1.23em;
+		column-gap: 5%;
+		column-count: 2;
+	}
+}
+@media (min-width: 1200px) {
+	.two-column-text-full {
+		font-size: 1.75rem;
+		line-height: 2.5rem;
+	}
+}
+
+</style>

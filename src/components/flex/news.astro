@@ -1,0 +1,159 @@
+---
+// news.astro
+// Port of news.php — now fetches from local cached API (/api/news.json)
+// Props:
+// - count?: number            (how many to show; default 5)
+// - section_title?: string    (text below “News” eyebrow)
+// - readMoreUrl?: string      (href for the CTA)
+// - wpBase?: string           (ignored here; caching handled by API layer)
+
+interface WPSizeMap { [k: string]: { source_url?: string } | undefined }
+interface WPFeaturedMedia {
+  alt_text?: string;
+  media_details?: { sizes?: WPSizeMap };
+  source_url?: string;
+}
+interface WPNews {
+  id: number;
+  date_gmt?: string;
+  date?: string;
+  link?: string;
+  title?: { rendered: string };
+  excerpt?: { rendered: string };
+  _embedded?: { ["wp:featuredmedia"]?: WPFeaturedMedia[] };
+}
+
+interface Props {
+  count?: number;
+  section_title?: string;
+  readMoreUrl?: string;
+  wpBase?: string; // kept for signature parity, but unused
+}
+
+const {
+  count = 5,
+  section_title = "",
+  readMoreUrl = "",
+} = Astro.props as Props;
+
+// Helpers
+function stripTags(html = "") {
+  return html.replace(/<[^>]*>/g, "");
+}
+function escAttr(s = "") {
+  return s.replace(/"/g, "&quot;");
+}
+function formatDateISO(d?: string) {
+  try { return d ? new Date(d).toISOString() : ""; } catch { return ""; }
+}
+function formatDatePretty(d?: string) {
+  try {
+    if (!d) return "";
+    const dt = new Date(d);
+    // format: 02.11.2024
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getDate()).padStart(2, "0");
+    const yyyy = String(dt.getFullYear());
+    return `${mm}.${dd}.${yyyy}`;
+  } catch { return ""; }
+}
+function getFeatured(media?: WPFeaturedMedia): { url: string; alt: string } {
+  if (!media) return { url: "", alt: "" };
+  const sizes = media.media_details?.sizes;
+  const tryKeys = ["thumbnail"]; // prefer small thumb for list
+  for (const k of tryKeys) {
+    const u = sizes?.[k]?.source_url;
+    if (u) return { url: u, alt: media.alt_text || "" };
+  }
+  return { url: media.source_url || "", alt: media.alt_text || "" };
+}
+
+// Query local cached API (served by /src/pages/api/news.json.ts)
+// The API sets strong Cache-Control for CDN/edge, and we bypass
+// any server runtime cache here to always respect the API headers.
+let posts: WPNews[] = [];
+try {
+  const apiURL = new URL("/api/news.json", Astro.url);
+  apiURL.searchParams.set("count", String(count));
+
+  const res = await fetch(apiURL, { cache: "no-store" });
+  if (!res.ok) {
+    console.error("[news.astro] API fetch failed", res.status, await res.text());
+  } else {
+    const data = await res.json();
+    posts = (data?.posts as WPNews[]) ?? [];
+  }
+} catch (e) {
+  console.error("[news.astro] API fetch error", e);
+}
+
+const hasPosts = posts.length > 0;
+---
+
+<div class="hw-contain">
+  <h2 class="section-eyebrow eyebrow min-[700px]:pb-0 pb-6" data-sal="slide-up">News</h2>
+  <h3 class="big-section-title-news ls-5 pt-10 mb-16 lilblur wrap-chars">
+    {section_title}
+  </h3>
+
+  <div>
+    {hasPosts ? (
+      <div class="news-list">
+        {posts.map((p) => {
+          const permalink = p.link || "#";
+          const title = stripTags(p.title?.rendered || "");
+          const dateAttr = formatDateISO(p.date || p.date_gmt);
+          const datePretty = formatDatePretty(p.date || p.date_gmt);
+
+          // Excerpt: prefer explicit excerpt, fall back to stripped content excerpt
+          const rawExcerpt = stripTags(p.excerpt?.rendered || "");
+          // mimic wp_trim_words(..., 24, '…')
+          const words = rawExcerpt.trim().split(/\s+/);
+          const excerpt = words.length > 24 ? words.slice(0, 24).join(" ") + "…" : rawExcerpt;
+
+          const media = p._embedded?.["wp:featuredmedia"]?.[0];
+          const { url: thumbUrl, alt: mediaAlt } = getFeatured(media);
+
+          return (
+            <article class="news-item w100">
+              <a class="news-link flex align-items-center tal" href={permalink}>
+                <div class="news-content tal min-[700px]:flex">
+                  <time class="news-date eyebrow iota" datetime={dateAttr}>{datePretty}</time>
+                  <h3 class="round-vw-lh news-title">{title}</h3>
+                </div>
+
+                <div class="news-media pr">
+                  {thumbUrl && (
+                    <img
+                      loading="lazy"
+                      fetchpriority="low"
+                      class="news-img"
+                      src={thumbUrl}
+                      alt={escAttr(mediaAlt || title)}
+                    />
+                  )}
+                </div>
+              </a>
+            </article>
+          );
+        })}
+      </div>
+    ) : (
+      <div class="news-list">
+        <article class="news-item w100">
+          <div class="news-link flex align-items-center tal">
+            <div class="news-content tal min-[700px]:flex">
+              <h3 class="round-vw-lh news-title">No news posts found.</h3>
+            </div>
+          </div>
+        </article>
+      </div>
+    )}
+  </div>
+
+  <div class="tac mt-32">
+    <a href={readMoreUrl || "/news"} class="tac big-border-btn clash icon-after icon-arrow-right">
+      Read More News
+    </a>
+  </div>
+</div>

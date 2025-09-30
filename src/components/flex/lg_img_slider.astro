@@ -1,0 +1,133 @@
+---
+// src/components/flex/lg_img_slider.astro
+/**
+ * lg_img_slider.astro
+ * Native lazy-loading, fetchpriority="low", and per-image aspect-ratio rules.
+ */
+
+type ImgItem = {
+  id?: number;
+  src?: string;
+  url?: string;
+  sizes?: Record<string, string>;
+  width?: number;
+  height?: number;
+  alt?: string;
+};
+
+interface Props {
+  section_title?: string;
+  section_text?: string;
+  images?: ImgItem[];
+  duration?: number;
+  wpBaseUrl?: string; // e.g. https://example.com
+}
+
+const {
+  section_title = "",
+  section_text = "",
+  images = [],
+  duration = 3.5,
+  wpBaseUrl
+} = Astro.props as Props;
+
+// Helpers
+function localSrcCandidate(img: ImgItem): string | undefined {
+  return img?.src || img?.sizes?.intch_med || img?.url || undefined;
+}
+function safeAlt(alt?: string) {
+  return alt ?? "";
+}
+async function resolveFromWpById(id: number) {
+  if (!wpBaseUrl) return null;
+  try {
+    const base = wpBaseUrl.replace(/\/+$/, "");
+    const res = await fetch(`${base}/wp-json/wp/v2/media/${id}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    const sizes = data?.media_details?.sizes ?? {};
+    const intch = sizes?.intch_lg?.source_url as string | undefined;
+    const src = intch || (data?.source_url as string | undefined);
+
+    const width =
+      sizes?.intch_lg?.width ?? data?.media_details?.width ?? undefined;
+    const height =
+      sizes?.intch_lg?.height ?? data?.media_details?.height ?? undefined;
+
+    const alt = (data?.alt_text as string | undefined) ?? "";
+
+    return { src, width, height, alt };
+  } catch {
+    return null;
+  }
+}
+
+// Normalize images (resolve src/size/alt)
+const normalized: Array<Required<Pick<ImgItem, "src">> & ImgItem> = [];
+for (const img of images) {
+  if (!img) continue;
+  let src = localSrcCandidate(img);
+  let width = img.width;
+  let height = img.height;
+  let alt = safeAlt(img.alt);
+
+  if (!src && img.id) {
+    const fetched = await resolveFromWpById(img.id);
+    if (fetched?.src) {
+      src = fetched.src;
+      width = width ?? (fetched.width as number | undefined);
+      height = height ?? (fetched.height as number | undefined);
+      if (!alt) alt = fetched.alt ?? "";
+    }
+  }
+
+  if (!src) continue;
+  normalized.push({ ...img, src, width, height, alt });
+}
+
+// Build per-image aspect-ratio styles now (no JSX here)
+let styles = "";
+normalized.forEach((img, i) => {
+  if (img.width && img.height) {
+    styles += `.lg-img-${i} { aspect-ratio: ${img.width} / ${img.height}; }\n`;
+  }
+});
+
+const uniq = `lg-${Math.random().toString(36).slice(2, 10)}`;
+---
+
+<div class="hw-contain">
+  {section_title && <h2 class="section-eyebrow eyebrow pb-14">{section_title}</h2>}
+
+  {section_text && (
+    <div class="lilblur lg-img-intro-text round-vw-lh wrap-chars" set:html={section_text} />
+  )}
+</div>
+
+<div class="tac mt-20 pr mq-outer lg-img-slider-outer">
+  <div
+    class="flex-wrap w100 hw-contain lg-img-slider mq-wrap"
+    data-dur={String(duration)}
+    id={`lg-img-slider-${uniq}`}
+  >
+    {normalized.length > 0 ? (
+      normalized.map((img, i) => (
+        <img
+          src={img.src}
+          loading="lazy"
+          fetchpriority="high"
+          class={`mq-item lg-img-slide-img lg-img-${i}`}
+          alt={img.alt ?? ""}
+          width={img.width}
+          height={img.height}
+          decoding="async"
+        />
+      ))
+    ) : (
+      <div class="tac opacity-60 py-6">No images provided.</div>
+    )}
+  </div>
+</div>
+
+{styles && <style>{styles}</style>}

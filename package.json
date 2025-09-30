@@ -1,0 +1,33 @@
+{
+  "name": "@example/minimal",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "sync:flex": "node --env-file=.env src/scripts/sync-flex-rest.js",
+    "dev": "npm run sync:flex && astro dev",
+    "start": "node ./dist/server/entry.mjs",
+    "build": "npm run sync:flex && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/node": "^9.4.4",
+    "@astrojs/react": "^4.4.0",
+    "astro": "^5.14.1",
+    "geist": "^1.5.1",
+    "gsap": "^3.13.0",
+    "locomotive-scroll": "^5.0.0-beta.21",
+    "motion": "^12.23.22",
+    "motion-plus": "https://api.motion.dev/registry?package=motion-plus&version=1.5.4&token=4d9d2a16fce72996f44a3548c4893c2e84e5860e868d75e26663f9f9b9baf4df",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@astrojs/tailwind": "^6.0.2",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "sass": "^1.93.2",
+    "tailwindcss": "^3.4.17"
+  }
+}

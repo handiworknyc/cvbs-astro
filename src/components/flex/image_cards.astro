@@ -1,0 +1,612 @@
+---
+/**
+ * image_cards.astro
+ * - Pull-through mode from existing HTML (`pull_from_html` + optional `pull_from_id`)
+ * - Local render mode from `cards[]`
+ * - Uses SmartImage.astro in place of intchImgHtml() for layout != 4
+ * - For layout === 4, outputs a simple <img> with the small size (intch_sm), mirroring PHP
+ */
+
+import SmartImage from '@ui/SmartImage.astro';
+
+type Btn = {
+  title?: string;
+  url?: string;
+};
+
+type CardImage = {
+  id?: number;
+  src?: string;
+  url?: string;
+  sizes?: Record<string, string>; // expects intch_xl/intch_lg/intch_med/intch_sm if present
+  width?: number;
+  height?: number;
+  alt?: string;
+};
+
+type Card = {
+  images?: CardImage[];
+  title?: string;
+  text?: string;        // HTML OR plain text with \n
+  button?: Btn | null;
+  checklist2?: string;  // newline-separated list items
+};
+
+interface Props {
+  // Pull-through
+  pull_from_html?: string;
+  pull_from_id?: string;
+
+  // Local render
+  cards?: Card[];
+
+  // Section/meta
+  section_title?: string;
+  section_text?: string; // HTML or plain text with \n
+
+  // Visual config
+  layout?: number | string;   // layout==4 triggers "small image" path like PHP
+  bg_img_cards?: string;      // used in class: bg-card-<value>
+
+  // Container class
+  containerClass?: string;
+
+  // SmartImage plumbing (optional pass-throughs)
+  smartImageSizes?: string;   // sizes attribute for SmartImage
+  cdnHost?: string;
+  wpHost?: string;
+  critical?: boolean;         // if any image should be eager/high-pri
+}
+
+const {
+  pull_from_html,
+  pull_from_id,
+  cards = [],
+  section_title = "",
+  section_text = "",
+  layout = 1,
+  bg_img_cards = "default",
+  containerClass = "hw-contain pr ofh",
+  smartImageSizes = "(max-width: 1200px) 40vw, 100vw",
+  cdnHost,
+  wpHost,
+  critical = false,
+} = Astro.props as Props;
+
+/* ---------------- helpers ---------------- */
+
+/** Decode HTML entities, including numeric (decimal & hex). Do a few passes to handle double-escaped strings. */
+function decodeEntitiesDeep(s = "") {
+  let out = s;
+  for (let i = 0; i < 4; i++) {
+    const before = out;
+    out = out
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/&#(\d+);/g,       (_, n) => String.fromCharCode(parseInt(n, 10)))
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+    if (out === before) break;
+  }
+  return out;
+}
+
+/** Ensure a string is safe HTML: decode entities or convert \n to <br> if it's plain text. */
+function ensureHtml(s = "") {
+  if (!s) return "";
+  // First decode (handles &amp;lt;br/&amp;gt; → <br/>)
+  let decoded = decodeEntitiesDeep(s);
+
+  // If there are no tags and we have newlines, convert those to <br />
+  const hasTags = /<\/?[a-z][\s\S]*>/i.test(decoded);
+  if (!hasTags && decoded.includes("\n")) {
+    decoded = decoded.replace(/\r?\n/g, "<br />");
+  }
+  return decoded;
+}
+
+/* ---------------- Pull-through helpers ---------------- */
+
+function extractSection(html: string, selector?: string): string {
+  if (!html) return "";
+  const src = String(html);
+
+  if (selector && selector.startsWith("#")) {
+    const id = selector.slice(1);
+    const re = new RegExp(
+      `<([a-zA-Z]+)([^>]*\\s)id=["']${id}["'][^>]*>[\\s\\S]*?<\\/\\1>`,
+      "i"
+    );
+    const m = src.match(re);
+    if (m) return m[0];
+  }
+
+  // Default to the first .image_cards-module
+  {
+    const re = /<div[^>]*class=["'][^"']*image_cards-module[^"']*["'][^>]*>([\s\S]*?)<\/div>/i;
+    const m = src.match(re);
+    if (m) return m[0];
+  }
+
+  return src;
+}
+
+function applyOverrides(html: string, title?: string, textHtml?: string): string {
+  let out = html;
+
+  if (title && title.trim()) {
+    out = out.replace(
+      /<h2\b[^>]*>[\s\S]*?<\/h2>/i,
+      `<h2 class="section-eyebrow eyebrow min-[700px]:pb-0 pb-6">${ensureHtml(title)}</h2>`
+    );
+  }
+
+  if (textHtml && textHtml.trim()) {
+    const blockRe = /<div\b[^>]*class=["'][^"']*img-cards-section-text[^"']*["'][^>]*>[\s\S]*?<\/div>/i;
+    const injected = `<div class="lg-section-text img-cards-section-text med mb3h wrap-chars lilblur ls-5 round-vw-lh">${ensureHtml(
+      textHtml
+    )}</div>`;
+    if (blockRe.test(out)) {
+      out = out.replace(blockRe, injected);
+    } else {
+      out = out.replace(/(<h2\b[^>]*>[\s\S]*?<\/h2>)/i, `$1\n${injected}`);
+    }
+  }
+
+  return out;
+}
+
+/* --------------- Local render helpers --------------- */
+
+const isLayout4 = String(layout) === "4";
+const flexClass = isLayout4 ? "flex-wrap-1520" : "flex-wrap";
+
+/** Build SmartImage images map from our CardImage.sizes */
+function toSmartImagesMap(img: CardImage) {
+  const sizes = img.sizes || {};
+  const xl = sizes.intch_xl || sizes.intch_lg || img.src || img.url;
+  const lg = sizes.intch_lg || sizes.intch_med || img.src || img.url;
+  const md = sizes.intch_med || sizes.intch_sm || undefined;
+  const sm = sizes.intch_sm || undefined;
+
+  const map: Record<string, string | false | undefined> = {
+    xl: xl || undefined,
+    large: lg || undefined,
+    med: md ?? undefined,
+    small: sm ?? undefined,
+  };
+  return map;
+}
+
+function renderChecklist(text?: string) {
+  if (!text) return { html: "", count: 0 };
+  const lines = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  if (!lines.length) return { html: "", count: 0 };
+  const lis = lines.map((li) => `<li class="check-list-item">${li}</li>`).join("");
+  return { html: `<ul class="check-list pt-9">${lis}</ul>`, count: lines.length };
+}
+
+function buttonBits(btn?: Btn | null) {
+  if (!btn) return { url: "", html: "" };
+  const url = btn.url || "";
+  const label = (btn.title && btn.title.trim()) || "Learn More";
+  return { url, html: `<span class="small-btn clash icon-after icon-arrow-right">${label}</span>` };
+}
+
+/* ---------------------- Render ---------------------- */
+const pulled =
+  typeof pull_from_html === "string" && pull_from_html.trim()
+    ? applyOverrides(extractSection(pull_from_html, pull_from_id), section_title, section_text)
+    : "";
+---
+
+{pulled ? (
+  // ===== Mode 1: Pull-through =====
+  <div class={containerClass}>
+    <div set:html={pulled} />
+  </div>
+) : (
+  // ===== Mode 2: Local render =====
+  <div class={containerClass}>
+    <div class="img-cards-title-nav flex-wrap-700 min-[700px]:pt-[3.5rem] pb-6 tal align-items-center">
+      <h2
+        class="section-eyebrow eyebrow pb0-700 pb-6"
+        set:html={ensureHtml(section_title)}
+      />
+    </div>
+
+    {section_text && (
+      <div
+        class="lg-section-text img-cards-section-text med mb3h wrap-chars lilblur ls-5 round-vw-lh"
+        set:html={ensureHtml(section_text)}
+      />
+    )}
+    <div class='pr ofh'>
+        <div
+        class={`img-card-outer pr bg-card-${bg_img_cards} equal-height-cells layout-${layout} hw-slides ${flexClass} tal img-card-slider`}
+        id={`image-cards-${Math.random().toString(36).slice(2, 10)}`}
+        >
+        {cards.map((c) => {
+            const { html: listHtml, count } = renderChecklist(c.checklist2);
+            const { url: btnUrl, html: btnHtml } = buttonBits(c.button);
+            const El = btnUrl ? "a" : "div";
+
+            return (
+            <El class="img-card-item block" {...(btnUrl ? { href: btnUrl } : {})}>
+                <div class="img-card-inner flex-wrap">
+                <div class="img-card-text-wrap mb-4 min-[500px]:pt-[3.5rem] pt-9">
+                    <h3
+                    class="img-card-title ls-5"
+                    set:html={ensureHtml(c.title)}
+                    />
+
+                    <div class={`img-card-text pb-4 checkcount-${count}`}>
+                    {c.text && <div set:html={ensureHtml(c.text)} />}
+                    {listHtml && <div set:html={listHtml} />}
+                    </div>
+
+                    { btnHtml && <Fragment set:html={btnHtml} /> }
+                </div>
+
+                <div class="img-card-img-wrap">
+                    {Array.isArray(c.images) && c.images.length > 0 ? (
+                    isLayout4 ? (
+                        c.images.map((img) => {
+                        const src = img?.sizes?.intch_sm || img?.src || img?.url || "";
+                        if (!src) return null;
+                        return (
+                            <img
+                            src={src}
+                            class="img-card-img"
+                            alt={img?.alt ?? ""}
+                            loading="lazy"
+                            decoding="async"
+                            />
+                        );
+                        })
+                    ) : (
+                        c.images.map((img) => {
+                        const map = toSmartImagesMap(img);
+                        const haveAny = map.xl || map.large || map.med || map.small;
+                        if (!haveAny) return null;
+                        return (
+                            <SmartImage
+                            images={map as any}
+                            sizes={smartImageSizes}
+                            alt={img?.alt ?? ""}
+                            imgClass="img-full-image abs obj-cover zindex0 tr-fix"
+                            critical={critical}
+                            cdnHost={cdnHost}
+                            wpHost={wpHost}
+                            fetchpriority={critical ? 'high' : 'low'}
+                            />
+                        );
+                        })
+                    )
+                    ) : null}
+                </div>
+                </div>
+            </El>
+            );
+        })}
+        </div>
+    </div>
+  </div>
+)}
+
+
+<style>
+.img-card-outer {
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+
+  &.bg-card-false {
+    background-color: rgba(204, 221, 219, .2);
+  }
+
+  border-radius: 26px;
+
+  &.bg-card-true {
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.09);
+    background: linear-gradient(159deg, rgba(234, 243, 242, .5) 0%, rgba(216, 230, 227, .46) 100%);
+  }
+
+  --cardPadding: 1.25rem;
+
+  padding: var(--cardPadding);
+  overflow: hidden;
+
+  .flickity-slider,
+  .flickity-viewport {
+    overflow: visible !important;
+  }
+}
+
+:global(.mintbg-1 .img-card-outer) {
+  &.bg-card-false {
+    background-color: rgba(255, 255, 255, .41);
+  }
+}
+
+.flickity-page-dots.gt8 .dot {
+  display: none !important;
+}
+
+@media (max-width: 1519px) {
+  .layout-4 .img-card-outer {
+    padding-bottom: 0;
+  }
+}
+
+@media (max-width: 784px) {
+  .img-card-outer {
+    margin: 0 calc(-1 * (var(--containerPadding) + .5rem));
+  }
+
+  .img-card-outer,
+  .img-card-outer:after {
+    -webkit-border-radius: 0 !important;
+    border-radius: 0 !important;
+  }
+}
+
+.img-card-item {
+  --cardWidth: 340px;
+  width: var(--cardWidth);
+  min-width: var(--cardWidth);
+  max-width: var(--cardWidth);
+  padding: var(--cardPadding);
+  flex: 1;
+}
+
+.img-card-inner {
+  transition: transform .3s ease;
+  will-change: transform;
+}
+
+@media (min-width: 760px) {
+  .img-card-outer {
+    --cardPadding: 1.5rem;
+  }
+  .img-card-item {
+    --cardWidth: 380px;
+  }
+}
+
+@media (min-width: 700px) {
+  .layout-2 .img-card-item {
+    --cardWidth: 50%;
+  }
+}
+
+@media (min-width: 1350px) {
+  .img-card-outer {
+    --cardPadding: 1vw;
+  }
+
+  .layout-2 .img-card-item {
+    .check-list {
+      font-size: 1.55rem;
+    }
+  }
+}
+
+@media (min-width: 1520px) {
+  .image_cards-module .flickity-page-dots {
+    display: none !important;
+  }
+
+  .layout-4 .img-card-item {
+    height: auto !important;
+    width: 25%;
+    min-width: 25%;
+    max-width: 25%;
+  }
+}
+
+@media (min-width: 700px) {
+  .layout-2 .img-card-item {
+    width: 50%;
+    min-width: 50%;
+    max-width: 50%;
+
+    .img-card-text-wrap {
+      margin-bottom: 20rem !important;
+    }
+
+    .img-card-text:not(.checkcount-2):not(.checkcount-3) {
+      .check-list {
+        column-count: 2;
+      }
+    }
+  }
+}
+
+.img-card-inner {
+  height: 100%;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .65);
+
+  &:after {
+    content: '';
+    white-space: nowrap;
+    pointer-events: none;
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+    transform: translateY(0);
+    background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='18' ry='18' stroke='%23333' stroke-width='2' stroke-dasharray='8%2c 10' stroke-dashoffset='48' stroke-linecap='square'/%3e%3c/svg%3e");
+  }
+}
+
+@media (max-width: 449px) {
+  .img-card-inner:after {
+    width: 99.8%;
+  }
+}
+
+.img-card-text-wrap {
+  padding: 2.5rem calc(var(--cardPadding) * 1.5) 1rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+
+  .small-btn {
+    will-change: transform;
+    transition: transform .3s ease;
+    align-self: flex-start;
+    margin-top: auto;
+  }
+}
+
+.img-card-img-wrap {
+  margin-top: auto;
+}
+
+.img-card-img {
+  object-fit: cover;
+  position: relative;
+  bottom: 1px;
+
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+}
+
+.bg-card- .img-card-img {
+  aspect-ratio: 16/10;
+}
+
+.bg-card-1 .img-card-img-wrap img,
+.bg-card-1 .img-card-img-wrap {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  background: var(--mintdark);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .5) 0%, rgba(0, 0, 0, .8) 40%);
+  mask-mode: alpha;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .5) 0%, rgba(0, 0, 0, .8) 40%);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  border-radius: 0;
+  object-position: center bottom;
+}
+
+.bg-card-1 .img-card-img-wrap {
+  opacity: .75;
+}
+
+.bg-card-1 .img-card-img-wrap img {
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, .8) 100%);
+  mask-mode: alpha;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, .8) 100%);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mix-blend-mode: multiply;
+  filter: grayscale(1);
+}
+
+.img-card-title {
+  font-size: 3rem;
+  line-height: 2.75rem;
+  font-weight: 500;
+}
+
+@media (min-width: 1300px) {
+  .layout-2 .img-card-title {
+    font-size: 4.5rem;
+    line-height: 4rem;
+  }
+}
+
+.img-card-text {
+  padding-top: 1.5rem;
+  font-size: 1.316rem;
+  line-height: 1.75rem;
+}
+
+@media (max-width: 499px) {
+  .img-card-text {
+    font-size: 1.25rem;
+
+    .check-list-item {
+      margin-bottom: 1rem;
+
+      &:before {
+        height: 1.5rem;
+        width: 1.5rem;
+        min-width: 1.5rem;
+        min-height: 1.5rem;
+        margin-top: 0px;
+      }
+    }
+  }
+}
+
+.check-list-item {
+  padding-left: 0;
+}
+
+.image_cards-module {
+  position: relative;
+}
+
+.img-card-inner > * {
+  position: relative;
+  z-index: 1;
+}
+
+a.img-card-item .img-card-inner:before {
+  content: '';
+  position: absolute;
+  top: -10%;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform: scale(2);
+  z-index: 0 !important;
+  opacity: 0;
+
+  background-color: hsla(92, 56%, 95%, 1);
+  background-image:
+    radial-gradient(at 0% 98%, hsla(96, 71%, 68%, 0.42) 0px, transparent 50%),
+    radial-gradient(at 100% 42%, hsla(153, 78%, 61%, 0.28) 0px, transparent 50%),
+    radial-gradient(at 52% 0%, hsla(157, 92%, 62%, 0.13) 0px, transparent 50%),
+    radial-gradient(at 80% 100%, hsla(155, 100%, 50%, 0.15) 0px, transparent 50%),
+    radial-gradient(at 0% 0%, hsla(60, 100%, 90%, 1) 0px, transparent 50%);
+
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 10%, rgba(0, 0, 0, 1) 90%, rgba(0, 0, 0, 0) 100%);
+  mask-mode: alpha;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 10%, rgba(0, 0, 0, 1) 90%, rgba(0, 0, 0, 0) 100%);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+}
+
+a[href].img-card-item:hover {
+  .img-card-inner {
+    transform: scale(.98);
+  }
+  .img-card-inner:before {
+    opacity: .35;
+    transform: scale(1);
+  }
+}
+
+</style>

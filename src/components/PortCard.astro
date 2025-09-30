@@ -1,0 +1,216 @@
+---
+/* NO TypeScript, no spreads, no fancy stuff */
+const { item, class: className = "" } = Astro.props,
+	info = (item && item.portfolioInfo) || {},
+	uri = item.uri,
+	href = item.uri,
+	isExternal = /^https?:\/\//i.test(href);
+
+// put vtKey here
+const vtKey = (u) =>
+  String(u || "")
+    .toLowerCase()
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/[^a-z0-9]+/g, "-");
+
+const vtName = `proj-title-${vtKey(item?.uri)}`;
+
+
+
+const vtCss = `
+::view-transition-group(${vtName}) {
+  animation-duration: var(--pageTransitionNew, 450ms);
+  animation-timing-function: var(--cubicBez)
+}
+`;
+
+let prettyDate = "", machineDate = "";
+if (info.date) {
+	const d = new Date(info.date);
+	if (!isNaN(d.getTime())) {
+		prettyDate = d.toLocaleDateString("en-US", {
+			year: "numeric",
+			month: "short",
+			day: "numeric"
+		});
+		machineDate = d.toISOString();
+	}
+}
+---
+<div class={`project proj-card pr ${className}`}>
+	<div class="pr proj-card-inner tr-op">
+		<h1
+			class="proj-card-title"
+			style={`view-transition-name:${vtName}`}
+		>
+			{item?.title}
+		</h1>
+
+		<div class="transition-opacity hide proj-card-date">
+			{prettyDate && <time datetime={machineDate}>{prettyDate}</time>}
+		</div>
+
+		<p class="transition-opacity  proj-card-excerpt">
+			<span class="box-text split-lines">{info.excerpt}</span>
+			<a
+                class="proj-card-link"
+				href={href}
+				target={isExternal ? "_blank" : undefined}
+				rel={isExternal ? "noopener noreferrer" : undefined}
+			>
+				View project
+			</a>
+		</p>
+	</div>
+</div>
+<Fragment set:html={`<style>${vtCss}</style>`} />
+
+<style>
+.proj-card {
+	margin-top: 2rem;
+	overflow: hidden;
+}
+
+.proj-card-inner {
+	padding: 0 5%;
+    width: 90%;
+}
+
+.proj-card > div {
+	margin-top: 2rem;
+    margin-bottom: 2rem;
+}
+
+.proj-card:first-child,
+.proj-card.current {
+	margin-top: 4rem;
+}
+
+.proj-card p,
+.proj-card-date,
+.proj-card-title {
+	font-size: 2rem;
+	line-height: 1em;
+	font-weight: 390;
+}
+
+.proj-card-title {
+	float: left;
+}
+
+.proj-card-date,
+.proj-card.current .proj-card-date {
+	position: absolute;
+	top: 1em;
+	opacity: 0;
+	transition: opacity 0s;
+	transition-delay: .1s;
+}
+
+.proj-card-excerpt {
+    transition-duration: 650ms;
+    transition-timing-function: var(--cubicBez);
+}
+
+.proj-card-title {
+	margin-right: 1.333rem;
+}
+
+.proj-card p span {
+	opacity: .2;
+}
+.proj-card:hover p span {
+	opacity: 1;
+}
+.proj-card.current p,
+.proj-card.current span {
+	opacity: 1;
+}
+
+.proj-card:hover .proj-card-link {
+    color: var(--c-turq);
+}
+
+@media all and (min-width: 59.375em) {
+    .proj-card-inner {
+        --fontsize: 4rem;
+    	width: 105em;
+        margin: 0 auto;
+        padding: 0 2.5rem;
+    }
+	.proj-card p,
+	.proj-card-date,
+	.proj-card-title {
+		font-size: var(--fontsize);
+		line-height: 1em;
+        letter-spacing: -.05em;
+	}
+	
+	.proj-card-date {
+		opacity: 1;
+		transition: opacity .8s;
+        transition-delay: .45s;
+	}
+	
+	.proj-card:hover .proj-card-date {
+		opacity: 0;
+		transition: opacity .15s;
+		transition-delay: 0s;
+	}
+	
+    .proj-card-link,
+	:global(.proj-card-excerpt .split-line) {
+		opacity: .05;
+		line-height: 1em;
+        transition: all .45s var(--cubicBez);
+	}
+
+    :global(.proj-card:hover .proj-card-excerpt .split-line) {
+       transition: all .65s var(--cubicBez);            
+    }
+    /* Default (not hovered): reversed stagger */
+    :global(.proj-card-excerpt .split-line:nth-child(1)) { transition-delay: 0.25s; }
+    :global(.proj-card-excerpt .split-line:nth-child(2)) { transition-delay: 0.2s; }
+    :global(.proj-card-excerpt .split-line:nth-child(3)) { transition-delay: 0.15s; }
+    :global(.proj-card-excerpt .split-line:nth-child(4)) { transition-delay: 0.1s; }
+    :global(.proj-card-excerpt .split-line:nth-child(5)) { transition-delay: 0.05s; }
+    :global(.proj-card-excerpt .split-line:nth-child(6)) { transition-delay: 0s; }
+
+    /* Hovered: forward stagger */
+    :global(.proj-card:hover .proj-card-excerpt .split-line:nth-child(1)) { transition-delay: 0s; }
+    :global(.proj-card:hover .proj-card-excerpt .split-line:nth-child(2)) { transition-delay: 0.05s; }
+    :global(.proj-card:hover .proj-card-excerpt .split-line:nth-child(3)) { transition-delay: 0.1s; }
+    :global(.proj-card:hover .proj-card-excerpt .split-line:nth-child(4)) { transition-delay: 0.15s; }
+    :global(.proj-card:hover .proj-card-excerpt .split-line:nth-child(5)) { transition-delay: 0.2s; }
+    :global(.proj-card:hover .proj-card-excerpt .split-line:nth-child(6)) { transition-delay: 0.25s; }
+
+   .proj-card:hover .proj-card-link {
+        transition: all 1s var(--cubicBez);            
+        transition-delay: 0.2s
+    }
+    .proj-card:hover .proj-card-link,
+	:global(.proj-card:hover .proj-card-excerpt .split-line),
+	:global(.proj-card.current .proj-card-excerpt .split-line) {
+		opacity: 1;
+	}
+	
+	.proj-card p span {
+		opacity: 1;
+	}
+	
+	ol,
+	ul {
+		padding: 0;
+	}
+}
+</style>
+
+<script type="module">
+  import { scrubProgressVarAll } from "/src/scripts/project-prog.js";
+
+  // Apply to all cards
+  scrubProgressVarAll(".proj-card", {
+    varName: "--progress",
+    startOffsetPx: 100,
+  });
+</script>

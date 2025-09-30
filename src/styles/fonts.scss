@@ -1,0 +1,38 @@
+@font-face {
+	font-family: 'Uncut';
+	src: url(/fonts/UncutSans-Variable.woff2) format('woff2');
+	font-display: block;
+    font-weight: 100 900;
+}
+
+@font-face {
+	font-family: 'me';
+	src: url(/fonts/icomoon.woff) format('woff');
+	font-display: block;
+}
+
+@font-face {
+  font-family: 'Barlow';
+  src: url('/fonts/barlow-400.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Barlow Medium */
+@font-face {
+  font-family: 'Barlow';
+  src: url('/fonts/barlow-500.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Barlow SemiBold */
+@font-face {
+  font-family: 'Barlow';
+  src: url('/fonts/barlow-600.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}

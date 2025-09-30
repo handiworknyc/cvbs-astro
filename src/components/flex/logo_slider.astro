@@ -1,0 +1,167 @@
+---
+// src/components/flex/logo_slider.astro
+// Renders a logo slider. Supports:
+// 1) Pull-through mode via `pull_from_html` (+ optional `pull_from_id`)
+// 2) Local build mode via `logos` (and now auto-resolves image src from WP if you pass only `id`)
+
+type Logo = {
+  id?: number;
+  src?: string;
+  url?: string;
+  sizes?: Record<string, string>;
+  width?: number;
+  height?: number;
+  alt?: string;
+  link?: string;
+};
+
+interface Props {
+  pull_from_html?: string;
+  pull_from_id?: string;
+  logos?: Logo[];
+  title?: string;
+  duration?: number;
+  wrapperClass?: string;
+  /** Base URL of your WP (e.g. https://example.com). Used to resolve media by id when src is missing. */
+  wpBaseUrl?: string;
+}
+
+const {
+  pull_from_html,
+  pull_from_id,
+  logos = [],
+  title = "Selected Clients",
+  duration = 3.5,
+  wrapperClass = "",
+  wpBaseUrl
+} = Astro.props as Props;
+
+// --- Helpers ---
+function extractSection(html: string, selector?: string): string {
+  if (!html) return "";
+  const src = String(html);
+
+  if (selector && selector.startsWith("#")) {
+    const id = selector.slice(1);
+    const re = new RegExp(
+      `<([a-zA-Z]+)([^>]*\\s)id=["']${id}["'][^>]*>([\\s\\S]*?)<\\/\\1>`,
+      "i"
+    );
+    const m = src.match(re);
+    if (m) return m[0];
+  }
+
+  // Default: first .logo_slider-module
+  {
+    const re = /<div[^>]*class=["'][^"']*logo_slider-module[^"']*["'][^>]*>([\s\S]*?)<\/div>/i;
+    const m = src.match(re);
+    if (m) return m[0];
+  }
+
+  // Fallback to whole HTML
+  return src;
+}
+
+function classForRatio(w?: number, h?: number): string {
+  if (!w || !h || h === 0) return "";
+  const ratio = Number((w / h).toFixed(3));
+  const classes: string[] = [];
+  if (ratio < 1.8) classes.push("square");
+  if (ratio < 1.1) classes.push("small"); // combines with 'square'
+  if (ratio < 2.3) classes.push("lg");
+  return classes.join(" ").trim();
+}
+
+function safeAlt(alt?: string) {
+  return alt ?? "";
+}
+
+// Try to resolve a usable src from typical ACF image shapes
+function localSrcCandidate(logo: Logo): string | undefined {
+  return logo?.src || logo?.sizes?.intch_sm || logo?.url || undefined;
+}
+
+// Resolve media item from WP if only id provided
+async function resolveFromWpById(id: number) {
+  if (!wpBaseUrl) return null;
+  try {
+    const res = await fetch(`${wpBaseUrl.replace(/\/+$/,'')}/wp-json/wp/v2/media/${id}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const sizes = data?.media_details?.sizes ?? {};
+    const intch = sizes?.intch_sm?.source_url as string | undefined;
+    const src = intch || (data?.source_url as string | undefined);
+    const width = sizes?.intch_sm?.width ?? data?.media_details?.width;
+    const height = sizes?.intch_sm?.height ?? data?.media_details?.height;
+    const alt = (data?.alt_text as string | undefined) ?? "";
+    return { src, width, height, alt };
+  } catch {
+    return null;
+  }
+}
+
+// Build a normalized list of logos with guaranteed src when possible
+const normalized: Logo[] = [];
+for (const L of logos) {
+  if (!L) continue;
+
+  let src = L.sizes.intch_sm;
+  //console.log(src);
+  let width = L.width;
+  let height = L.height;
+  let alt = safeAlt(L.alt);
+  
+
+  // If still no src, skip this logo (previously caused "only one" to render)
+  if (!src) continue;
+
+  normalized.push({
+    ...L,
+    src,
+    width,
+    height,
+    alt
+  });
+}
+
+// Unique id for the instance
+const uniq = `ls-${Math.random().toString(36).slice(2, 10)}`;
+---
+
+{/** ===== Mode 1: Pull-through ===== */}
+{typeof pull_from_html === "string" && pull_from_html.trim().length > 0 ? (
+  <div set:html={extractSection(pull_from_html, pull_from_id)} />
+) : (
+  /** ===== Mode 2: Build locally from logos ===== */
+  <div class:list={["hw-contain", wrapperClass].filter(Boolean)}>
+    <h2 class="eyebrow tac pt-6 pb-6">{title}</h2>
+
+    <div class="mq-dotted-wrap pr bg-white ofh min-[760px]:pt-[1.5rem] min-[760px]:pb-[1.5rem] pt-1 pb-1">
+      <div class="tac pr mq-outer logo-slider-outer always-mq">
+        <div
+          class="flex-wrap w100 container-fluid logo-slider mq-wrap"
+          data-dur={String(duration)}
+          id={`logo-slider-${uniq}`}
+        >
+          {normalized.length > 0 ? (
+            normalized.map((logo) => {
+              const ratioClass = classForRatio(logo.width, logo.height);
+              const alt = safeAlt(logo.alt);
+              const imgEl = <img src={logo.src!} class={ratioClass} alt={alt} />;
+
+              return (
+                <div class="logo-slide pr mq-item flex-wrap">
+                  <div class="logo-slide-inner">
+                    {imgEl}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div class="tac opacity-60 py-6">No logos provided.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}

@@ -1,0 +1,121 @@
+---
+// components/BlogPrevItem.astro
+// Port of hw_render_blog_prev_item($post, $img_size='intch_med', $excerpt_words=40)
+
+type ImageMap = Record<string, string>;
+
+interface ImageLike {
+  src?: string;                 // full/original src
+  alt?: string;
+  sizes?: ImageMap;             // e.g. { intch_med: "...", large: "..." }
+}
+
+interface TermLike { name?: string }
+
+interface PostLike {
+  id?: number | string;
+  title?: string;
+  date?: string;                // preformatted (e.g. "F j, Y")
+  dateISO?: string;             // ISO string, will be formatted if `date` missing
+  excerpt?: string;             // not shown here, but accepted
+  permalink?: string;
+  image?: ImageLike | null;     // featured image with sizes
+  contentHtml?: string;         // used to fallback first <img src="...">
+  // “Yoast primary service” analogue—send any of these and we’ll pick something
+  service?: string | TermLike | Array<TermLike | string>;
+  terms?: { service?: string | TermLike | Array<TermLike | string> };
+  yoastPrimary?: { service?: string };
+}
+
+interface Props {
+  post: PostLike;
+  img_size?: string;            // default 'intch_med'
+  excerpt_words?: number;       // not printed; kept for signature parity
+}
+
+const { post, img_size = 'intch_med' } = Astro.props as Props;
+
+// Title
+const title = (post?.title ?? '').trim();
+
+// Date (prefer preformatted, else derive from ISO)
+function fmtDate(p: PostLike): string {
+  if (p.date && p.date.trim()) return p.date;
+  if (p.dateISO) {
+    try {
+      return new Date(p.dateISO).toLocaleDateString('en-US', {
+        month: 'long', day: 'numeric', year: 'numeric'
+      });
+    } catch {}
+  }
+  return '';
+}
+const dateStr = fmtDate(post);
+
+// “Yoast primary service” equivalent: try a few places
+function firstNameOf(x: unknown): string | null {
+  if (!x) return null;
+  if (typeof x === 'string') return x;
+  if (Array.isArray(x)) {
+    for (const item of x) {
+      const n = firstNameOf(item);
+      if (n) return n;
+    }
+    return null;
+  }
+  const maybe = x as TermLike;
+  return (maybe?.name && String(maybe.name)) || null;
+}
+const serviceName =
+  post.yoastPrimary?.service
+    ? String(post.yoastPrimary.service)
+    : firstNameOf(post.service) ?? firstNameOf(post.terms?.service) ?? '';
+
+// Pick image URL: prefer requested size, then original, then first content <img>
+function pickImageUrl(p: PostLike, sizeKey: string): string {
+  const sizes = p.image?.sizes;
+  if (sizes && sizes[sizeKey]) return sizes[sizeKey];
+  if (sizes && sizes['medium_large']) return sizes['medium_large'];
+  if (sizes && sizes['large']) return sizes['large'];
+  if (p.image?.src) return p.image.src;
+
+  if (p.contentHtml) {
+    const m = p.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (m?.[1]) return m[1];
+  }
+  return '';
+}
+const imageUrl = pickImageUrl(post, img_size);
+
+const perma = post.permalink || '#';
+const alt = post.image?.alt || title || '';
+---
+
+<div class="blog-prev-item block tal pr">
+  <a class="blog-prev-inner pr" href={perma}>
+    <div class="blog-prev-img-wrap ofh pr">
+      {imageUrl && (
+        <img
+          src={imageUrl}
+          data-src={imageUrl}
+          alt={alt}
+          class="blog-prev-img of-cover"
+          loading="lazy"
+          decoding="async"
+        />
+      )}
+    </div>
+
+    {serviceName && (
+      <p class="bg-tag bg-gold iota smaller c-darkbluetext eyebrow inline-block abs blog-prev-cat">
+        {serviceName}
+      </p>
+    )}
+
+    {dateStr && (
+      <p class="blog-prev-date eyebrow pt-8 pb-4 smaller">{dateStr}</p>
+    )}
+
+    <h2 class="blog-prev-title round-vw-lh">{title}</h2>
+  </a>
+</div>
