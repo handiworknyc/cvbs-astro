@@ -1,4 +1,3 @@
-// helper: convert old `/@px` notation to rem (px ÷ 12)
 $rem-base: 12;
 @function rem($n) { @return ($n / $rem-base) * 1rem; }
 
@@ -113,7 +112,6 @@ $rem-base: 12;
   padding-top: 0;
 }
 
-// mob font vars
 $mob-super: rem(108);
 $mob-super-alt: rem(96);
 $mob-super-alt-lh: rem(96);
@@ -167,7 +165,6 @@ $mob-iota: rem(15.5);
 $mob-iota-lh: rem(24);
 $mob-iota-lh-title: rem(21);
 
-// large font vars
 $super: rem(108);
 $super-alt: rem(96);
 $super-alt-lh: rem(96);
@@ -221,7 +218,6 @@ $iota: rem(15.5);
 $iota-lh: rem(24);
 $iota-lh-title: rem(21);
 
-// large font vars (lg-*)
 $lg-super: rem(108);
 $lg-super-alt: rem(96);
 $lg-super-alt-lh: rem(96);
@@ -304,7 +300,6 @@ $lg-iota-lh-title: rem(21);
   line-height: $mob-theta-lh;
 }
 
-// 1300px to 500
 @media (min-width: 900px) and (min-height: 500px) {
   .post-content h2 {
     font-size: $alpha;
@@ -341,7 +336,6 @@ $lg-iota-lh-title: rem(21);
   }
 } /* end media query */
 
-// 1440 to 1080
 @media (min-width: 1440px) and (min-height: 900px) {
   .post-content h2 {
     font-size: $lg-alpha;
@@ -494,7 +488,6 @@ $lg-iota-lh-title: rem(21);
 }
 */
 
-//760 , 500
 @media (min-width: 760px) and (min-height: 500px) {
   .mega, .post-content .mega {
     font-size: $mega;
@@ -614,7 +607,6 @@ $lg-iota-lh-title: rem(21);
   }
 } /* end media query */
 
-//1440 to 500
 @media (min-width: 1440px) and (min-height: 500px) {
   .mega.mega-alt {
     font-size: $lg-mega-alt;

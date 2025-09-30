@@ -42,33 +42,6 @@
 	min-width: 125% !important;
 }
 
-// .logo_slider-module .mq-outer.blur:not(.no-slider) {
-	// &:before,
-	// &:after {
-	// 	backdrop-filter: blur(22px);
-	// 	content: '';
-	// 	position: absolute;
-	// 	top: 0;
-	// 	width: 20vw;
-	// 	height: 100%;
-// 
-	// 	z-index: 10;
-	// }
-	// 
-	// &:before {
-	// 	-webkit-mask-image: linear-gradient(to left, transparent, black);
-	// 	mask-image: linear-gradient(to left, transparent, black);
-	// 	-webkit-mask-repeat: no-repeat;
-	// 	left: 0;
-	// }
-	// 
-	// &:after {
-	// 	-webkit-mask-image: linear-gradient(to right, transparent, black);
-	// 	mask-image: linear-gradient(to right, transparent, black);
-	// 	-webkit-mask-repeat: no-repeat;
-	// 	right: 0
-	// }
-// }
 
 .logo-slider.no-slider {
 	left: auto;
