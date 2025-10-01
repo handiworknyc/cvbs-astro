@@ -13,6 +13,13 @@ import belowCssUrl from "@/styles/below.scss?url";
 // ✅ bundle header-critical as a file URL
 import headerCriticalUrl from "@/scripts/header-critical.js?url";
 
+import smartimageUrl from "@/scripts/smart-image.ts?url";
+import gsapGlobalUrl from "@/scripts/gsap-global.ts?url";
+import nativebootstrapUrl from "@/scripts/plugins/nativebootstrap.js?url";
+import navCollapseUrl from "@/scripts/nav-collapse.js?url";
+import flickityUrl from "@/scripts/plugins/flickity.js?url";
+import themeUrl from "@/scripts/theme.js?url";
+import flickitysUrl from "@/scripts/flickitys.js?url";
 Astro.response.headers.set(
   "Netlify-CDN-Cache-Control",
   "public, durable, max-age=600, stale-while-revalidate=86400"
@@ -70,12 +77,10 @@ const pageTitle = title
     <script src={headerCriticalUrl}></script>
 
     <!-- Other global/feature scripts (now bundled via alias) -->
-    <script type="module">
-      import "@/scripts/smartimage.ts";
-      import "@/scripts/gsap-global.ts";
-      import "@/scripts/plugins/nativebootstrap.js";
-      import "@/scripts/nav-collapse.js";
-    </script>
+	<script type="module" src={smartimageUrl}></script>
+    <script type="module" src={gsapGlobalUrl}></script>
+    <script type="module" src={nativebootstrapUrl}></script>
+    <script type="module" src={navCollapseUrl}></script>
   </head>
 
   <body>
@@ -90,10 +95,8 @@ const pageTitle = title
     <SiteFooter />
     
     <!-- Feature scripts that can wait until after content -->
-    <script type="module">
-      import "@/scripts/plugins/flickity.js";
-      import "@/scripts/theme.js";
-      import "@/scripts/flickitys.js";
-    </script>
+	<script type="module" src={flickityUrl}></script>
+    <script type="module" src={themeUrl}></script>
+    <script type="module" src={flickitysUrl}></script>
   </body>
 </html>
