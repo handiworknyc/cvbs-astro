@@ -1,20 +1,23 @@
 // astro.config.mjs
-import { defineConfig } from "astro/config";
-import react from "@astrojs/react";
-import tailwind from "@astrojs/tailwind";
-import netlify from "@astrojs/netlify/functions"; // ✅ use the Netlify Functions adapter
+import { defineConfig } from 'astro/config';
+import react from '@astrojs/react';
+import netlify from '@astrojs/netlify';
+import tailwind from '@astrojs/tailwind';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+
+const root = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
-  output: "server",               // SSR
-  adapter: netlify(),
   integrations: [tailwind(), react()],
-  trailingSlash: 'ignore', 
+  output: 'server',
+  adapter: netlify(),
   vite: {
     resolve: {
       alias: {
-        "@": "/src",
-        "@ui": "/src/components/ui",
-        "@images": "/src/lib/images",
+        '@': resolve(root, 'src'),
+        '@ui': resolve(root, 'src/components/ui'),
+        '@images': resolve(root, 'src/lib/images'),
       },
     },
   },
