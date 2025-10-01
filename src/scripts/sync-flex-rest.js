@@ -1,17 +1,62 @@
+// src/scripts/sync-flex-rest.js
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-const WP_BASE = process.env.WP_BASE_URL;
-if (!WP_BASE) throw new Error("Missing WP_BASE_URL (e.g. https://clbr.local)");
+/* -------------------------------------------
+   Load env files only when running locally
+   (Netlify sets process.env.NETLIFY=true)
+------------------------------------------- */
+if (!process.env.NETLIFY) {
+  try {
+    const { config } = await import("dotenv");
+    const mode = process.env.NODE_ENV === "production" ? "production" : "development";
+    // Load mode-specific first, then fall back to plain .env
+    config({ path: `.env.${mode}` });
+    config();
+  } catch {
+    // dotenv is optional; ignore if not installed locally
+  }
+}
 
-const GRAPHQL = process.env.WORDPRESS_API_URL || process.env.WP_GRAPHQL_URL || "";
+/* -------------------------------------------
+   Env + helpers
+------------------------------------------- */
+function maskBasicAuthUrl(u) {
+  try {
+    const url = new URL(u);
+    if (url.username || url.password) {
+      url.username = "***";
+      url.password = "***";
+    }
+    return url.toString();
+  } catch {
+    return u;
+  }
+}
+
+const WP_BASE = (process.env.WP_BASE_URL || "").trim();
+const GRAPHQL = (process.env.WORDPRESS_API_URL || process.env.WP_GRAPHQL_URL || "").trim();
 const PAGE_URIS_ENV = (process.env.PAGE_URIS || "").trim();
+
+// Optional HTTP Basic auth for WP endpoints (value should be "username:password")
 const AUTH = process.env.WP_AUTH_BASIC
-  ? "Basic " + Buffer.from(process.env.WP_AUTH_BASIC).toString("base64")
+  ? "Basic " + Buffer.from(process.env.WP_AUTH_BASIC, "utf8").toString("base64")
   : null;
 
-function authHeaders() { return AUTH ? { Authorization: AUTH } : {}; }
+if (!WP_BASE) {
+  console.error(
+    "Missing WP_BASE_URL.\n" +
+      "• Local dev: set it in .env.development (e.g., http://localhost:8888)\n" +
+      "• Local prod test: set it in .env.production (e.g., https://your-wp.example)\n" +
+      "• Netlify: set it in Site Settings → Build & deploy → Environment"
+  );
+  process.exit(1);
+}
+
+function authHeaders() {
+  return AUTH ? { Authorization: AUTH } : {};
+}
 
 async function fetchJSON(url) {
   const res = await fetch(url, { headers: { ...authHeaders() } });
@@ -29,13 +74,18 @@ function toPathname(link) {
     if (!p.endsWith("/")) p += "/";
     if (!p.startsWith("/")) p = "/" + p;
     return p;
-  } catch { return "/"; }
+  } catch {
+    return "/";
+  }
 }
 
 function fileSlugFromUri(uri) {
   return uri.replace(/^\/+|\/+$/g, "").replace(/\/+/g, "_") || "home";
 }
 
+/* -------------------------------------------
+   Discovery (REST + optional GraphQL fallback)
+------------------------------------------- */
 async function discoverPagesViaREST() {
   // Only "pages"
   const pages = [];
@@ -46,7 +96,7 @@ async function discoverPagesViaREST() {
     url.searchParams.set("page", String(page));
     const { json, res } = await fetchJSON(url);
     if (!Array.isArray(json) || !json.length) break;
-    pages.push(...json.map(p => toPathname(p.link)));
+    pages.push(...json.map((p) => toPathname(p.link)));
     const totalPages = Number(res.headers.get("X-WP-TotalPages") || "1");
     if (page >= totalPages) break;
     page++;
@@ -74,7 +124,6 @@ async function discoverTermsViaREST(taxonomy) {
   return out;
 }
 
-
 async function discoverViaGraphQL() {
   if (!GRAPHQL) return { pageUris: [], terms: [] };
 
@@ -82,7 +131,6 @@ async function discoverViaGraphQL() {
   const TAX_ENUM_SERVICE = (process.env.TAX_ENUM_SERVICE || "SERVICE").trim();
   const TAX_ENUM_SERVICE_AREA = (process.env.TAX_ENUM_SERVICE_AREA || "SERVICEAREA").trim();
 
-  // Build the query string with the enum tokens inlined (GraphQL enums can't be variables)
   const q = /* GraphQL */ `
     query URIs {
       pages(first: 500, where: { status: PUBLISH }) { nodes { uri } }
@@ -100,10 +148,10 @@ async function discoverViaGraphQL() {
     if (!res.ok) return { pageUris: [], terms: [] };
     const json = await res.json().catch(() => ({}));
 
-    const pageUris = (json?.data?.pages?.nodes || []).map(n => n?.uri).filter(Boolean);
+    const pageUris = (json?.data?.pages?.nodes || []).map((n) => n?.uri).filter(Boolean);
     const terms = [
-      ...(json?.data?.service?.nodes || []).map(n => ({ taxonomy: "service", slug: n.slug })),
-      ...(json?.data?.serviceArea?.nodes || []).map(n => ({ taxonomy: "service-area", slug: n.slug })),
+      ...(json?.data?.service?.nodes || []).map((n) => ({ taxonomy: "service", slug: n.slug })),
+      ...(json?.data?.serviceArea?.nodes || []).map((n) => ({ taxonomy: "service-area", slug: n.slug })),
     ];
     return { pageUris: Array.from(new Set(pageUris)), terms };
   } catch {
@@ -111,7 +159,9 @@ async function discoverViaGraphQL() {
   }
 }
 
-
+/* -------------------------------------------
+   Fetch flexible endpoints
+------------------------------------------- */
 async function fetchFlexibleForPage(uri) {
   const url = new URL("/wp-json/astro/v1/flexible", WP_BASE);
   url.searchParams.set("uri", uri);
@@ -128,46 +178,62 @@ async function fetchFlexibleForTerm(taxonomy, slug) {
   return json;
 }
 
+/* -------------------------------------------
+   Main
+------------------------------------------- */
 async function run() {
-  console.log("ENV:", { WP_BASE_URL: WP_BASE, WORDPRESS_API_URL: GRAPHQL || "(none)" });
+  console.log("ENV:", {
+    WP_BASE_URL: maskBasicAuthUrl(WP_BASE),
+    WORDPRESS_API_URL: GRAPHQL ? maskBasicAuthUrl(GRAPHQL) : "(none)",
+  });
 
   const outBase = path.join(process.cwd(), "src", "content", "wp");
   const outPages = path.join(outBase, "pages");
   const outTaxService = path.join(outBase, "tax", "service");
   const outTaxServiceArea = path.join(outBase, "tax", "service-area");
-  [outPages, outTaxService, outTaxServiceArea].forEach(dir => fs.mkdirSync(dir, { recursive: true }));
+  [outPages, outTaxService, outTaxServiceArea].forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
 
   // 1) gather targets
-  let pageUris =
-    PAGE_URIS_ENV ? PAGE_URIS_ENV.split(",").map(s => s.trim()).filter(Boolean)
-                  : await discoverPagesViaREST().catch(() => []);
+  let pageUris = PAGE_URIS_ENV
+    ? PAGE_URIS_ENV.split(",").map((s) => s.trim()).filter(Boolean)
+    : await discoverPagesViaREST().catch(() => []);
+
   let termsService = await discoverTermsViaREST("service").catch(() => []);
   let termsServiceArea = await discoverTermsViaREST("service-area").catch(() => []);
 
+  // Fallback to GraphQL if REST discovery returned nothing
   if (!pageUris.length || (!termsService.length && !termsServiceArea.length)) {
     const fb = await discoverViaGraphQL();
     if (!pageUris.length) pageUris = fb.pageUris;
     if (!termsService.length && !termsServiceArea.length) {
-      termsService = fb.terms.filter(t => t.taxonomy === "service");
-      termsServiceArea = fb.terms.filter(t => t.taxonomy === "service-area");
+      termsService = fb.terms.filter((t) => t.taxonomy === "service");
+      termsServiceArea = fb.terms.filter((t) => t.taxonomy === "service-area");
     }
   }
 
-  console.log(`🔎 Pages: ${pageUris.length}, service terms: ${termsService.length}, service-area terms: ${termsServiceArea.length}`);
+  console.log(
+    `🔎 Pages: ${pageUris.length}, service terms: ${termsService.length}, service-area terms: ${termsServiceArea.length}`
+  );
   if (!pageUris.length && !termsService.length && !termsServiceArea.length) {
     console.warn("⚠️  Nothing discovered. Check that REST/GraphQL are reachable and taxonomies exist.");
     return;
   }
 
   // 2) fetch & write
-  let wrote = 0, skipped = 0, failed = 0;
+  let wrote = 0,
+    skipped = 0,
+    failed = 0;
 
   // Pages
   for (const uri of pageUris) {
     try {
       const data = await fetchFlexibleForPage(uri);
       const layouts = Array.isArray(data?.layouts) ? data.layouts : [];
-      if (!layouts.length) { console.log(`🔎 Skip page (no layouts): ${uri}`); skipped++; continue; }
+      if (!layouts.length) {
+        console.log(`🔎 Skip page (no layouts): ${uri}`);
+        skipped++;
+        continue;
+      }
       const file = path.join(outPages, `${fileSlugFromUri(uri)}.json`);
       fs.writeFileSync(file, JSON.stringify(data, null, 2));
       console.log(`✅ Wrote ${file} (${layouts.length} layouts)`);
@@ -183,7 +249,11 @@ async function run() {
     try {
       const data = await fetchFlexibleForTerm("service", t.slug);
       const layouts = Array.isArray(data?.layouts) ? data.layouts : [];
-      if (!layouts.length) { console.log(`🔎 Skip term service:${t.slug} (no layouts)`); skipped++; continue; }
+      if (!layouts.length) {
+        console.log(`🔎 Skip term service:${t.slug} (no layouts)`);
+        skipped++;
+        continue;
+      }
       const file = path.join(outTaxService, `${t.slug}.json`);
       fs.writeFileSync(file, JSON.stringify(data, null, 2));
       console.log(`✅ Wrote ${file} (${layouts.length} layouts)`);
@@ -199,7 +269,11 @@ async function run() {
     try {
       const data = await fetchFlexibleForTerm("service-area", t.slug);
       const layouts = Array.isArray(data?.layouts) ? data.layouts : [];
-      if (!layouts.length) { console.log(`🔎 Skip term service-area:${t.slug} (no layouts)`); skipped++; continue; }
+      if (!layouts.length) {
+        console.log(`🔎 Skip term service-area:${t.slug} (no layouts)`);
+        skipped++;
+        continue;
+      }
       const file = path.join(outTaxServiceArea, `${t.slug}.json`);
       fs.writeFileSync(file, JSON.stringify(data, null, 2));
       console.log(`✅ Wrote ${file} (${layouts.length} layouts)`);

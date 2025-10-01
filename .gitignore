@@ -7,3 +7,6 @@ clbr.local-key.pem
 
 # Local Netlify folder
 .netlify
+.env
+.env.*
+!.env.example
