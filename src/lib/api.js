@@ -1,88 +1,103 @@
+// src/lib/api.js
+// NOTE: This file is ESM (type: module). Runs in SSR/build on Netlify.
+
 import { fetchAPI } from "./wp.js";
+
+/* ---------------------------------------------
+   Env helpers (endpoint + Basic Auth header)
+--------------------------------------------- */
+function getGraphQLEndpoint() {
+  const wp = (import.meta.env.WORDPRESS_API_URL || "").trim();
+  const base = (import.meta.env.WP_BASE_URL || "").trim();
+  if (wp) return wp;
+  if (base) return new URL("/graphql", base).toString();
+  return null; // caller should handle null (render fallback)
+}
+
+function authHeaders() {
+  // On Netlify SSR, process.env is available; locally too.
+  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
+  if (!pair) return {};
+  const token = Buffer.from(pair, "utf8").toString("base64");
+  return { Authorization: `Basic ${token}` };
+}
+
+async function fetchGraphQL(query, variables) {
+  const endpoint = getGraphQLEndpoint();
+  if (!endpoint) return null;
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  const text = await res.text();
+  const ct = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    throw new Error(`GraphQL HTTP ${res.status} at ${endpoint}\n${text.slice(0, 300)}`);
+  }
+  if (!ct.includes("application/json")) {
+    throw new Error(`Expected JSON but got "${ct}" from ${endpoint}\n${text.slice(0, 300)}`);
+  }
+  return JSON.parse(text);
+}
 
 /* ================================
  * GraphQL-based helpers (yours)
  * ================================ */
 
-// ../lib/api.ts
-export async function navQuery(){
-  const res = await fetch(import.meta.env.WORDPRESS_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json' },
-    body: JSON.stringify({
-      query: `{
-        menus(where: {location: PRIMARY}) {
+export async function navQuery() {
+  const q = `{
+    menus(where: {location: PRIMARY}) {
+      nodes {
+        name
+        menuItems(first: 200) {
           nodes {
-            name
-            menuItems(first: 200) {
-              nodes {
-                id
-                databaseId
-                parentId
-                parentDatabaseId
-                parent { node { id databaseId } }
-                label
-                uri
-                url
-                cssClasses
-                target
-                title
-                xfn
-                order
-              }
-            }
+            id databaseId parentId parentDatabaseId
+            parent { node { id databaseId } }
+            label uri url cssClasses target title xfn order
           }
         }
-        generalSettings { title url description }
-      }`
-    })
-  });
+      }
+    }
+    generalSettings { title url description }
+  }`;
 
-  const { data } = await res.json();
-  // Ensure the shape is ALWAYS present
-  return {
-    menus: data?.menus ?? { nodes: [] },
-    generalSettings: data?.generalSettings ?? { title: '', url: '', description: '' },
-  };
+  try {
+    const json = await fetchGraphQL(q);
+    const data = json?.data || {};
+    return {
+      menus: data.menus ?? { nodes: [] },
+      generalSettings: data.generalSettings ?? { title: "", url: "", description: "" },
+    };
+  } catch {
+    // Render-safe fallback (don’t crash prerender/SSR)
+    return { menus: { nodes: [] }, generalSettings: { title: "", url: "", description: "" } };
+  }
 }
 
-export async function homePagePostsQuery(){
-  const response = await fetch(import.meta.env.WORDPRESS_API_URL, {
-    method: 'post',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      query: `{
-        posts {
-          nodes {
-            date
-            uri
-            title
-            commentCount
-            excerpt
-            categories {
-              nodes {
-                name
-                uri
-              }
-            }
-            featuredImage {
-              node {
-                srcSet
-                sourceUrl
-                altText
-                mediaDetails { height width }
-              }
-            }
-          }
-        }
-      }`
-    })
-  });
-  const { data } = await response.json();
-  return data;
+export async function homePagePostsQuery() {
+  const q = `{
+    posts {
+      nodes {
+        date uri title commentCount excerpt
+        categories { nodes { name uri } }
+        featuredImage { node { srcSet sourceUrl altText mediaDetails { height width } } }
+      }
+    }
+  }`;
+
+  try {
+    const json = await fetchGraphQL(q);
+    return json?.data ?? { posts: { nodes: [] } };
+  } catch {
+    return { posts: { nodes: [] } };
+  }
 }
 
-// Fetch recent Projects for home
+// Recent Projects for home
 export async function homePagePortfolioQuery() {
   return fetchAPI(`
     query HomeProjects($first: Int = 12) {
@@ -93,95 +108,90 @@ export async function homePagePortfolioQuery() {
   `);
 }
 
-// Resolve any URI to a WP node (now handling Project instead of Portfolio)
+// Resolve any URI to a WP node
 export async function getNodeByURI(uri) {
-  const response = await fetch(import.meta.env.WORDPRESS_API_URL, {
-    method: "post",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: `
-        query GetNodeByURI($uri: String!) {
-          nodeByUri(uri: $uri) {
-            __typename
-            ... on Project {
-              id uri title content
-              featuredImage { node { sourceUrl srcSet altText } }
-              portfolioInfo { excerpt date link subtitle }
-            }
-            ... on Post {
-              id uri title excerpt date content
-              categories { nodes { name uri } }
-              featuredImage { node { sourceUrl srcSet altText } }
-            }
-            ... on Page {
-              id uri title content
-              featuredImage { node { sourceUrl srcSet altText } }
-            }
-            ... on Category { id name uri }
-            ... on Tag { id name uri }
-          }
+  const q = `
+    query GetNodeByURI($uri: String!) {
+      nodeByUri(uri: $uri) {
+        __typename
+        ... on Project {
+          id uri title content
+          featuredImage { node { sourceUrl srcSet altText } }
+          portfolioInfo { excerpt date link subtitle }
         }
-      `,
-      variables: { uri },
-    }),
-  });
-  const { data } = await response.json();
-  return data;
+        ... on Post {
+          id uri title excerpt date content
+          categories { nodes { name uri } }
+          featuredImage { node { sourceUrl srcSet altText } }
+        }
+        ... on Page {
+          id uri title content
+          featuredImage { node { sourceUrl srcSet altText } }
+        }
+        ... on Category { id name uri }
+        ... on Tag { id name uri }
+      }
+    }
+  `;
+  try {
+    const json = await fetchGraphQL(q, { uri });
+    return json?.data ?? null;
+  } catch {
+    return null;
+  }
 }
 
-// Collect all URIs, now including Projects instead of allPortfolio
+// Collect all URIs (kept as-is; ensure your route expects `params.uri`)
 export async function getAllUris() {
-  const response = await fetch(import.meta.env.WORDPRESS_API_URL, {
-    method: "post",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: `query GetAllUris {
-        terms { nodes { uri } }
-        posts(first: 100) { nodes { uri } }
-        pages(first: 100) { nodes { uri } }
-        projects(first: 100) { nodes { uri } }
-      }`,
-    }),
-  });
+  const q = `query GetAllUris {
+    terms { nodes { uri } }
+    posts(first: 100) { nodes { uri } }
+    pages(first: 100) { nodes { uri } }
+    projects(first: 100) { nodes { uri } }
+  }`;
 
-  const { data } = await response.json();
+  try {
+    const json = await fetchGraphQL(q);
+    const data = json?.data || {};
 
-  const allNodes = Object.values(data).reduce((acc, group) => {
-    if (group?.nodes) acc = acc.concat(group.nodes);
-    return acc;
-  }, []);
+    const allNodes = Object.values(data).reduce((acc, group) => {
+      if (group?.nodes) acc = acc.concat(group.nodes);
+      return acc;
+    }, []);
 
-  const uris = allNodes
-    .filter((node) => node.uri)
-    .map((node) => {
-      const trimmed = node.uri.replace(/^\/|\/$/g, "");
-      return { params: { uri: trimmed } };
-    });
+    const uris = allNodes
+      .filter((n) => n?.uri)
+      .map((n) => {
+        const trimmed = n.uri.replace(/^\/|\/$/g, "");
+        return { params: { uri: trimmed } }; // <-- make sure your route param name matches this
+      });
 
-  console.log("Static paths:", uris);
-  return uris;
+    return uris;
+  } catch {
+    return [];
+  }
 }
 
 /* ===========================================
- * Flexible-content (file-based) helpers (NEW)
+ * Flexible-content (file-based) helpers
  * =========================================== */
 
 // Eagerly import JSON written by your sync script
-const pageMods = import.meta.glob('/src/content/wp/pages/*.json', { eager: true });
-const serviceMods = import.meta.glob('/src/content/wp/tax/service/*.json', { eager: true });
-const serviceAreaMods = import.meta.glob('/src/content/wp/tax/service-area/*.json', { eager: true });
+const pageMods = import.meta.glob("/src/content/wp/pages/*.json", { eager: true });
+const serviceMods = import.meta.glob("/src/content/wp/tax/service/*.json", { eager: true });
+const serviceAreaMods = import.meta.glob("/src/content/wp/tax/service-area/*.json", { eager: true });
 
 // Utilities
 function normalizeUri(u) {
-  let s = (u || '/').trim();
-  if (!s.startsWith('/')) s = '/' + s;
-  if (!s.endsWith('/')) s += '/';
+  let s = (u || "/").trim();
+  if (!s.startsWith("/")) s = "/" + s;
+  if (!s.endsWith("/")) s += "/";
   return s;
 }
 
-function slugifyUri(uri) {
-  const trimmed = (uri || '').replace(/^\/|\/$/g, '');
-  return trimmed ? trimmed.split('/') : [];
+function slugParamFromUri(uri) {
+  // Return a *string* param for Astro routes (not an array)
+  return (uri || "").replace(/^\/|\/$/g, ""); // "service/foo/bar"
 }
 
 function indexByUri(mods) {
@@ -204,8 +214,8 @@ function listFromMods(mods) {
 
 // Precomputed collections
 const PAGES_BY_URI = indexByUri(pageMods);
-const SERVICE_TERMS = listFromMods(serviceMods);           // { kind:'term', taxonomy:'service', slug, title?, layouts[] }
-const SERVICE_AREA_TERMS = listFromMods(serviceAreaMods);  // { kind:'term', taxonomy:'service-area', slug, title?, layouts[] }
+const SERVICE_TERMS = listFromMods(serviceMods);
+const SERVICE_AREA_TERMS = listFromMods(serviceAreaMods);
 
 // ---- Pages
 export function getFlexiblePageByUri(uri) {
@@ -213,9 +223,10 @@ export function getFlexiblePageByUri(uri) {
 }
 
 export function getAllFlexiblePagePaths() {
-  return Array.from(PAGES_BY_URI.values()).map((p) => ({
-    params: { slug: slugifyUri(p.uri) }
-  }));
+  return Array.from(PAGES_BY_URI.values())
+    .map((p) => slugParamFromUri(p.uri))
+    .filter((s) => s.length > 0) // don’t emit root here (index handles "/")
+    .map((s) => ({ params: { slug: s } })); // <-- string param for [...slug] / [[...slug]]
 }
 
 // ---- service taxonomy

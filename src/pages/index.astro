@@ -1,15 +1,20 @@
 ---
-export const prerender = true; // emit dist/index.html
+// src/pages/index.astro
+export const prerender = false;   // <- important for SSR
 
 import BaseLayout from "../layouts/MainLayout.astro";
 import LayoutRenderer from "../lib/wp/LayoutRenderer.astro";
 import { getFlexiblePageByUri } from "../lib/api";
 
-// Safe: don't throw, render a fallback if content isn't there yet
-const page = await getFlexiblePageByUri("/");  // use await if it's async
+let page = null;
+try {
+  page = await getFlexiblePageByUri("/");
+} catch (e) {
+  page = null; // render fallback instead of throwing
+}
 const title = page?.title ?? "CVBS";
 const layouts = page?.layouts ?? [];
 ---
 <BaseLayout title={title}>
-  {layouts.length ? <LayoutRenderer layouts={layouts} /> : <p>Homepage placeholder.</p>}
+  {layouts.length ? <LayoutRenderer layouts={layouts} /> : <p>WP unavailable right now.</p>}
 </BaseLayout>
