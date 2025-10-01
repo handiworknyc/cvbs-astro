@@ -11,9 +11,18 @@ const { slug = [] } = Astro.params;
 const uri = "/" + (Array.isArray(slug) ? slug.join("/") : slug) + "/";
 const page = getFlexiblePageByUri(uri);
 
-if (!page) return Astro.redirect("/404");
+if (!page) {
+  Astro.response.status = 404;
+  Astro.response.statusText = "Not found";
+}
 ---
 
-<BaseLayout title={page.title}>
-  <LayoutRenderer layouts={page.layouts || []} />
-</BaseLayout>
+{
+  page ? (
+    <BaseLayout title={page.title}>
+      <LayoutRenderer layouts={page.layouts || []} />
+    </BaseLayout>
+  ) : (
+    "Page Not found"
+  )
+}
