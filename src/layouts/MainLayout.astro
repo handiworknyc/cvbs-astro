@@ -4,6 +4,13 @@ import SiteFooter from "../components/SiteFooter.astro";
 import SiteNav from "../components/SiteNav.astro";
 import { navQuery } from "../lib/api";
 
+import gsapGlobalUrl from "@/scripts/gsap-global.ts?url";
+import nativebootstrapUrl from "@/scripts/plugins/nativebootstrap.js?url";
+import navCollapseUrl from "@/scripts/nav-collapse.js?url";
+import flickityUrl from "@/scripts/plugins/flickity.js?url";
+import themeUrl from "@/scripts/theme.js?url";
+import flickitysUrl from "@/scripts/flickitys.js?url";
+
 // Critical CSS
 import "../styles/global.scss";
 
@@ -249,12 +256,13 @@ const pageTitle = title
     <!-- ✅ Critical head script, bundled -->
     <script src={headerCriticalUrl}></script>
 
+    <script type="module" src={nativebootstrapUrl}></script>
+    <script type="module" src={navCollapseUrl}></script>
+
     <!-- Other global/feature scripts (bundled via ?url) -->
     <script>
       import "../scripts/smart-image";
       import "../scripts/gsap-global";
-      import "../scripts/nav-collapse";
-      import "../scripts/plugins/nativebootstrap";
     </script>
   </head>
 
@@ -269,12 +277,10 @@ const pageTitle = title
 
     <SiteFooter />
 
+    <script type="module" src={flickityUrl}></script>
+    <script type="module" src={themeUrl}></script>
+    <script type="module" src={flickitysUrl}></script>
+
     <!-- Feature scripts that can wait until after content -->
-    <script>
-      import "../scripts/plugins/flickity";
-      import "../scripts/flickitys";
-      import "../scripts/theme";
-      import "../scripts/theme";
-    </script>
   </body>
 </html>
