@@ -59,15 +59,6 @@ const pageTitle = title
       (d&&(d+="\x26"),d+=encodeURIComponent(a)+"\x3d"+encodeURIComponent(b[a]));return d}};k.userAgent=k.ua=k.parse(l,p);l=k.format(k.ua)+" js";n.className=n.className?n.className.replace(/\bno-js\b/g,"")+l:l.substr(1);return k}(document.documentElement,navigator.userAgent,navigator.standalone);
     </script>
 
-    <!-- Motion CSS scroll helper -->
-    <script type="module">
-      import initCssScrollVar from "/src/scripts/motion-css-scroll.ts";
-      initCssScrollVar({
-        varName: "--scroll-progress",
-        smooth: true,
-        smoothDuration: 0.15,
-      });
-    </script>
 
     <!-- Other global/feature scripts -->
     <script type="module" src="/src/scripts/smartimage.ts"></script>
