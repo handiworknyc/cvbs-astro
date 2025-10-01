@@ -12,13 +12,23 @@ import belowCssUrl from "@/styles/below.scss?url";
 
 // ✅ bundle your JS files into built URLs
 import headerCriticalUrl from "@/scripts/header-critical.js?url";
-import smartimageUrl from "@/scripts/SmartImage.ts?url";
+import smartimageUrl from "@/scripts/smart-image.ts?url";
 import gsapGlobalUrl from "@/scripts/gsap-global.ts?url";
 import nativebootstrapUrl from "@/scripts/plugins/nativebootstrap.js?url";
 import navCollapseUrl from "@/scripts/nav-collapse.js?url";
 import flickityUrl from "@/scripts/plugins/flickity.js?url";
 import themeUrl from "@/scripts/theme.js?url";
 import flickitysUrl from "@/scripts/flickitys.js?url";
+
+Astro.response.headers.set(
+  "Netlify-CDN-Cache-Control",
+  "public, durable, max-age=600, stale-while-revalidate=86400"
+);
+
+Astro.response.headers.set(
+  "CDN-Cache-Control",
+  "public, durable, max-age=600, stale-while-revalidate=86400"
+);
 
 // Fetch WordPress nav & settings
 const { menus, generalSettings } = await navQuery();
@@ -34,7 +44,7 @@ const { title = "", description = "" } = Astro.props;
 // Compose safe title
 const pageTitle = title
   ? `${title} | ${generalSettings?.title ?? ""}`
-  : generalSettings?.title ?? "";
+  : (generalSettings?.title ?? "");
 ---
 
 <html lang="en">
@@ -47,7 +57,13 @@ const pageTitle = title
     {description && <meta name="description" content={description} />}
 
     <!-- Global CSS vars from env (safe injection) -->
-    <style is:global define:vars={{ wpBaseUrl: `url('${WP_BASE_URL}')`, map1Url: `url('${MAP1_URL}')` }}>
+    <style
+      is:global
+      define:vars={{
+        wpBaseUrl: `url('${WP_BASE_URL}')`,
+        map1Url: `url('${MAP1_URL}')`,
+      }}
+    >
       :root {
         --wp-base-url: var(--wpBaseUrl);
         --map1-url: var(--map1Url);
@@ -56,8 +72,12 @@ const pageTitle = title
 
     <!-- Preload + lazy apply below-the-fold CSS -->
     <link rel="preload" href={belowCssUrl} as="style" />
-    <link rel="stylesheet" href={belowCssUrl} media="print" onload="this.media='all'" />
-
+    <link
+      rel="stylesheet"
+      href={belowCssUrl}
+      media="print"
+      onload="this.media='all'"
+    />
 
     <!-- Critical head script, bundled -->
     <script id="header-crit" src={headerCriticalUrl}></script>
@@ -79,7 +99,7 @@ const pageTitle = title
     </main>
 
     <SiteFooter />
-    
+
     <!-- Feature scripts that can wait until after content -->
     <script type="module" src={flickityUrl}></script>
     <script type="module" src={themeUrl}></script>
