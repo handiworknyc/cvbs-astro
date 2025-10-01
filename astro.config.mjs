@@ -8,6 +8,7 @@ export default defineConfig({
   output: "server",               // SSR
   adapter: netlify(),
   integrations: [tailwind(), react()],
+  trailingSlash: 'ignore', 
   vite: {
     resolve: {
       alias: {
