@@ -24,10 +24,10 @@ const {
   formId: rawId,
   showTitle = false,
   showDescription = true,
-  ajax = false,              // keep GF ajax OFF by default; SSR handles markup
+  ajax = false, // keep GF ajax OFF by default; SSR handles markup
   tabindex = 0,
   theme = "gravity-theme",
-  viaProxy = true,           // proxy submit by default (avoids CORS/auth issues)
+  viaProxy = true, // proxy submit by default (avoids CORS/auth issues)
   class: className = "",
   id: hostId = undefined,
 } = Astro.props as Props;
@@ -41,7 +41,8 @@ if (!validFormId) {
 
 // Public base is optional; DO NOT put secrets here.
 // If you set PUBLIC_WP_BASE_URL, client-side fallback renders can use it (not recommended with Basic Auth).
-const PUBLIC_WP_BASE = (import.meta.env.PUBLIC_WP_BASE_URL as string | undefined) || "";
+const PUBLIC_WP_BASE =
+  (import.meta.env.WP_BASE_URL as string | undefined) || "";
 
 // Try to SSR the form HTML (returns null on failure; never throws)
 let html: string | null = null;
@@ -66,9 +67,15 @@ const hadSSR = !!html;
   data-gf-theme={theme}
   data-gf-had-ssr={hadSSR ? "1" : "0"}
 >
-  {hadSSR
-    ? <Fragment set:html={html!} />
-    : <div class="gf-skeleton" aria-busy="true">Form temporarily unavailable.</div>}
+  {
+    hadSSR ? (
+      <Fragment set:html={html!} />
+    ) : (
+      <div class="gf-skeleton" aria-busy="true">
+        Form temporarily unavailable.
+      </div>
+    )
+  }
 </div>
 
 <script>

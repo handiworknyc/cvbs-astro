@@ -12,7 +12,7 @@ import belowCssUrl from "@/styles/below.scss?url";
 
 // ✅ bundle your JS files into built URLs
 import headerCriticalUrl from "@/scripts/header-critical.js?url";
-import smartimageUrl from "@/scripts/smart-image.ts?url";
+
 import gsapGlobalUrl from "@/scripts/gsap-global.ts?url";
 import nativebootstrapUrl from "@/scripts/plugins/nativebootstrap.js?url";
 import navCollapseUrl from "@/scripts/nav-collapse.js?url";
@@ -83,10 +83,12 @@ const pageTitle = title
     <script id="header-crit" src={headerCriticalUrl}></script>
 
     <!-- Other global/feature scripts (bundled via ?url) -->
-    <script type="module" src={smartimageUrl}></script>
-    <script type="module" src={gsapGlobalUrl}></script>
-    <script type="module" src={nativebootstrapUrl}></script>
-    <script type="module" src={navCollapseUrl}></script>
+    <script>
+      import "../scripts/smart-image";
+      import "../scripts/gsap-global";
+      import "../scripts/nav-collapse";
+      import "../scripts/plugins/nativebootstrap";
+    </script>
   </head>
 
   <body>
@@ -101,8 +103,11 @@ const pageTitle = title
     <SiteFooter />
 
     <!-- Feature scripts that can wait until after content -->
-    <script type="module" src={flickityUrl}></script>
-    <script type="module" src={themeUrl}></script>
-    <script type="module" src={flickitysUrl}></script>
+    <script>
+      import "../scripts/plugins/flickity";
+      import "../scripts/flickitys";
+      import "../scripts/theme";
+      import "../scripts/theme";
+    </script>
   </body>
 </html>

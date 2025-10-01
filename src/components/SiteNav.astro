@@ -5,7 +5,7 @@ const WP_BASE_URL = (import.meta.env.WP_BASE_URL || "").trim();
 
 /** Basic Auth header for WP Engine staging (server-side only) */
 function authHeaders() {
-  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
+  const pair = (import.meta.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
   if (!pair) return {};
   const token = Buffer.from(pair, "utf8").toString("base64");
   return { Authorization: `Basic ${token}` };
@@ -13,14 +13,20 @@ function authHeaders() {
 
 /** Normalize host (strip www.) for robust same-origin checks */
 function normalizeHost(host) {
-  return String(host || "").replace(/^www\./i, "").toLowerCase();
+  return String(host || "")
+    .replace(/^www\./i, "")
+    .toLowerCase();
 }
 
 /** Convert WP absolute URLs in HTML to Astro-relative paths (preserves ?query and #hash). */
 function rewriteMenuUrls(html, wpBase) {
   if (!html) return html;
   let base = null;
-  try { base = new URL(wpBase); } catch { base = null; }
+  try {
+    base = new URL(wpBase);
+  } catch {
+    base = null;
+  }
 
   return html.replace(/href=(['"])([^'"]+)\1/gi, (full, quote, href) => {
     try {
@@ -30,7 +36,10 @@ function rewriteMenuUrls(html, wpBase) {
       // Absolute URL?
       if (/^https?:\/\//i.test(href)) {
         const u = new URL(href);
-        if (base && normalizeHost(u.hostname) === normalizeHost(base.hostname)) {
+        if (
+          base &&
+          normalizeHost(u.hostname) === normalizeHost(base.hostname)
+        ) {
           const path = u.pathname || "/";
           const search = u.search || "";
           const hash = u.hash || "";
@@ -64,7 +73,11 @@ async function tryFetch(url) {
     });
     const text = await res.text(); // handle non-JSON error bodies too
     let data = null;
-    try { data = JSON.parse(text); } catch { /* not JSON */ }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      /* not JSON */
+    }
     return { ok: res.ok, status: res.status, url, data, raw: text };
   } catch (err) {
     return { ok: false, status: 0, url, data: null, raw: String(err) };
@@ -76,13 +89,15 @@ function cleanTel(s) {
 }
 
 // ---- Fetch email/phone from Options (probe multiple endpoints) ----
-const endpoints = WP_BASE_URL ? [
-  `${WP_BASE_URL}/wp-json/hw/v1/options`,
-  `${WP_BASE_URL}/wp-json/acf/v3/options/options`,
-  `${WP_BASE_URL}/wp-json/acf/v3/options`,
-  `${WP_BASE_URL}/wp-json/acf/options/options`,
-  `${WP_BASE_URL}/wp-json/options/acf`,
-] : [];
+const endpoints = WP_BASE_URL
+  ? [
+      `${WP_BASE_URL}/wp-json/hw/v1/options`,
+      `${WP_BASE_URL}/wp-json/acf/v3/options/options`,
+      `${WP_BASE_URL}/wp-json/acf/v3/options`,
+      `${WP_BASE_URL}/wp-json/acf/options/options`,
+      `${WP_BASE_URL}/wp-json/options/acf`,
+    ]
+  : [];
 
 let email = "";
 let phone = "";
@@ -91,9 +106,10 @@ let chosenEndpoint = null;
 
 for (const url of endpoints) {
   const r = await tryFetch(url);
-  const keys = r.data && typeof r.data === "object"
-    ? Object.keys(r.data?.acf ?? r.data)
-    : undefined;
+  const keys =
+    r.data && typeof r.data === "object"
+      ? Object.keys(r.data?.acf ?? r.data)
+      : undefined;
   probeLog.push({ url: r.url, status: r.status, ok: r.ok, keys });
 
   // Accept either { site_phone, site_email } OR { acf: { site_phone, site_email } }
@@ -118,49 +134,85 @@ const phoneHref = phone ? cleanTel(phone) : undefined;
 
 // NOTE: If WP is behind Basic Auth, these image URLs won’t load in the browser.
 // Consider copying these assets to /public and using relative paths instead.
-const logoSrc = WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/08/cropped-cvbsfinalnew.png.webp` : "/logo.png";
-const phoneIcon = WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg` : "/phone.svg";
-const googleLogo = WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/09/google.svg` : "/google.svg";
-const googleStars = WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg` : "/stars.svg";
+const logoSrc = WP_BASE_URL
+  ? `${WP_BASE_URL}/wp-content/uploads/2025/08/cropped-cvbsfinalnew.png.webp`
+  : "/logo.png";
+const phoneIcon = WP_BASE_URL
+  ? `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg`
+  : "/phone.svg";
+const googleLogo = WP_BASE_URL
+  ? `${WP_BASE_URL}/wp-content/uploads/2025/09/google.svg`
+  : "/google.svg";
+const googleStars = WP_BASE_URL
+  ? `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg`
+  : "/stars.svg";
 ---
 
 <header id="header" class="group mob-menu-abs">
-  <div class='header-inner'>
+  <div class="header-inner">
     <div class="hw-contain flex-wrap tal align-items-center">
-
-      <a class="logo" id='header-logo-a' href="/">
-        <img class='logo-img' src={logoSrc} alt="Logo" />
+      <a class="logo" id="header-logo-a" href="/">
+        <img class="logo-img" src={logoSrc} alt="Logo" />
       </a>
 
       <nav id="main-nav" class="pr tac resp-header-menu header-nav collapse">
-        <div class='main-nav-inner pr'>
-          <ul class="group resp-header-menu-ul align-items-center flex-wrap" data-sal data-sal-repeat>
+        <div class="main-nav-inner pr">
+          <ul
+            class="group resp-header-menu-ul align-items-center flex-wrap"
+            data-sal
+            data-sal-repeat
+          >
             <!-- dump the WP menu <li>s (or a full <ul>) -->
             <Fragment set:html={headerMenu || ""} />
-            {phone && (
-              <li class="header-phone menu-item">
-                <a href={phoneHref} class="c-green flex-wrap align-items-center tal">
-                  <img class="critical of-contain" src={phoneIcon} alt="Phone" />
-                  <span class="the-num">{phone}</span>
-                </a>
-              </li>
-            )}
+            {
+              phone && (
+                <li class="header-phone menu-item">
+                  <a
+                    href={phoneHref}
+                    class="c-green flex-wrap align-items-center tal"
+                  >
+                    <img
+                      class="critical of-contain"
+                      src={phoneIcon}
+                      alt="Phone"
+                    />
+                    <span class="the-num">{phone}</span>
+                  </a>
+                </li>
+              )
+            }
           </ul>
         </div>
       </nav>
 
       <div class="header-right align-items-center flex-wrap">
-        <a class="block header-btn header-quote-btn c-white bg-brandgreen clash" href="/">Get a Quote</a>
+        <a
+          class="block header-btn header-quote-btn c-white bg-brandgreen clash"
+          href="/">Get a Quote</a
+        >
 
-        {phone && (
-          <a href={phoneHref} class="mob-header-phone c-green flex-wrap align-items-center tal">
-            <img class="critical" src={phoneIcon} alt="Phone" />
-            <span class="the-num">{phone}</span>
-          </a>
-        )}
+        {
+          phone && (
+            <a
+              href={phoneHref}
+              class="mob-header-phone c-green flex-wrap align-items-center tal"
+            >
+              <img class="critical" src={phoneIcon} alt="Phone" />
+              <span class="the-num">{phone}</span>
+            </a>
+          )
+        }
 
-        <a class="google-reviews clash flex-wrap tal align-items-center" href="/" aria-label="Google Reviews">
-          <img src={googleLogo} class="critical header-google-logo of-contain" alt="Google" />
+        <a
+          class="google-reviews clash flex-wrap tal align-items-center"
+          href="/"
+          aria-label="Google Reviews"
+        >
+          <img
+            src={googleLogo}
+            class="critical header-google-logo of-contain"
+            alt="Google"
+          />
           <div class="google-reviews-right">
             5 Star Rated
             <img class="google-stars" src={googleStars} alt="5 stars" />
@@ -169,18 +221,19 @@ const googleStars = WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/08/sta
       </div>
 
       <div class="nav-toggle-wrap flex-wrap align-items-center">
-        <button class="nav-toggle collapsed first-load" aria-label="Click to view the main menu" data-toggle="collapse" data-target="#main-nav"><span></span></button>
+        <button
+          class="nav-toggle collapsed first-load"
+          aria-label="Click to view the main menu"
+          data-toggle="collapse"
+          data-target="#main-nav"><span></span></button
+        >
       </div>
     </div>
   </div>
 </header>
 
-
-
-
-
 <script type="module">
-  import initStickyHeader from '/src/scripts/sticky-header.ts';
+  import initStickyHeader from "/src/scripts/sticky-header.ts";
   initStickyHeader();
   import initDropdowns from "/src/scripts/dropdowns.ts";
   const root = document.getElementById("header-nav") || document;
@@ -188,37 +241,41 @@ const googleStars = WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/08/sta
 </script>
 
 <script>
-  var theheader = document.getElementById('header'),
+  var theheader = document.getElementById("header"),
     ogheaderheight = theheader.offsetHeight;
 
   HW.slidemsgclosing = false;
 
-  HW.setHeaderVar = function(){
+  HW.setHeaderVar = function () {
     var slidemsgheight = 0,
       headerheight = theheader.offsetHeight;
 
     HW.headerHeight = headerheight;
 
-    var thyContainer = document.querySelectorAll('.header-inner > .container-fluid > .flex-wrap')[0];
+    var thyContainer = document.querySelectorAll(
+      ".header-inner > .container-fluid > .flex-wrap"
+    )[0];
 
-    document.querySelector(':root').style.setProperty('--headerHeight', (headerheight) + 'px');
+    document
+      .querySelector(":root")
+      .style.setProperty("--headerHeight", headerheight + "px");
   };
 
   var sctop = document.documentElement.scrollTop;
 
-  if(sctop == 0) {
-    HW.$html.classList.add('hw-headroom-top');
+  if (sctop == 0) {
+    HW.$html.classList.add("hw-headroom-top");
   }
 
   HW.setHeaderVar();
 
-  var $navtoggle = $$('.nav-toggle')[0];
-  $navtoggle.classList.add('shown');
+  var $navtoggle = $$(".nav-toggle")[0];
+  $navtoggle.classList.add("shown");
 
-  HW.requestTimeout(function(){
-    $navtoggle.classList.remove('shown');	
-    HW.requestTimeout(function(){
-      $navtoggle.classList.remove('first-load');		
+  HW.requestTimeout(function () {
+    $navtoggle.classList.remove("shown");
+    HW.requestTimeout(function () {
+      $navtoggle.classList.remove("first-load");
     }, 250);
   }, 600);
 </script>

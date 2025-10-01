@@ -10,23 +10,29 @@
   if (typeof window === "undefined") return;
 
   const SELECTOR_IMG = "img.hw-lazy-img",
-        SELECTOR_LAZY = `${SELECTOR_IMG}[data-src]:not(.critical)`,
-        SELECTOR_CRIT_DEFERRED = `${SELECTOR_IMG}.critical[data-src]`, // promote immediately
-        SELECTOR_CRIT_FETCH = `${SELECTOR_IMG}[fetchpriority="high"]`,
-        PARENT_CLASS_ON_LOAD = "child-lazy-loaded",
-        PARENT_CLASS_ON_CRIT = "crit-child-lazy-loaded",
-        IO_ROOT_MARGIN = "200px";
+    SELECTOR_LAZY = `${SELECTOR_IMG}[data-src]:not(.critical)`,
+    SELECTOR_CRIT_DEFERRED = `${SELECTOR_IMG}.critical[data-src]`, // promote immediately
+    SELECTOR_CRIT_FETCH = `${SELECTOR_IMG}[fetchpriority="high"]`,
+    PARENT_CLASS_ON_LOAD = "child-lazy-loaded",
+    PARENT_CLASS_ON_CRIT = "crit-child-lazy-loaded",
+    IO_ROOT_MARGIN = "200px";
 
   const qsa = (root: ParentNode, sel: string) =>
-          Array.from(root.querySelectorAll<HTMLImageElement>(sel)),
-        isCritFetch = (img: HTMLImageElement) =>
-          (img.getAttribute("fetchpriority") || "").toLowerCase() === "high";
+      Array.from(root.querySelectorAll<HTMLImageElement>(sel)),
+    isCritFetch = (img: HTMLImageElement) =>
+      (img.getAttribute("fetchpriority") || "").toLowerCase() === "high";
 
   function upgrade(img: HTMLImageElement) {
-    const { src: ds, srcset: dss, sizes: dsz } = img.dataset as {
-      src?: string; srcset?: string; sizes?: string;
+    const {
+      src: ds,
+      srcset: dss,
+      sizes: dsz,
+    } = img.dataset as {
+      src?: string;
+      srcset?: string;
+      sizes?: string;
     };
-    if (ds)  img.src = ds;
+    if (ds) img.src = ds;
     if (dss) img.srcset = dss;
     if (dsz) img.sizes = dsz;
     img.removeAttribute("data-src");
@@ -68,16 +74,20 @@
   document.addEventListener("error", onLoadedOrError, true);
 
   // ---- IO lazy-load for non-critical images ----
-  const io = "IntersectionObserver" in window
-    ? new IntersectionObserver((entries) => {
-        for (const ent of entries) {
-          if (!ent.isIntersecting) continue;
-          const img = ent.target as HTMLImageElement;
-          upgrade(img);
-          io!.unobserve(img);
-        }
-      }, { rootMargin: IO_ROOT_MARGIN })
-    : null;
+  const io =
+    "IntersectionObserver" in window
+      ? new IntersectionObserver(
+          (entries) => {
+            for (const ent of entries) {
+              if (!ent.isIntersecting) continue;
+              const img = ent.target as HTMLImageElement;
+              upgrade(img);
+              io!.unobserve(img);
+            }
+          },
+          { rootMargin: IO_ROOT_MARGIN }
+        )
+      : null;
 
   const observeLazy = (img: HTMLImageElement) => {
     if (!img.matches(SELECTOR_LAZY)) return;
@@ -110,7 +120,11 @@
       if (img.matches(SELECTOR_CRIT_DEFERRED)) upgrade(img);
       else if (img.matches(SELECTOR_LAZY)) observeLazy(img);
 
-      if (img.matches(SELECTOR_CRIT_FETCH) && img.complete && img.naturalWidth > 0) {
+      if (
+        img.matches(SELECTOR_CRIT_FETCH) &&
+        img.complete &&
+        img.naturalWidth > 0
+      ) {
         markLoaded(img);
       }
     }

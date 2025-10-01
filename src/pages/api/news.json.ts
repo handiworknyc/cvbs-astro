@@ -16,8 +16,8 @@ function getWpBase(): string | null {
   return base || null;
 }
 
-function authHeaders(): Record<string, string> {
-  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
+export function authHeaders(): Record<string, string> {
+  const pair = (import.meta.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
   if (!pair) return {};
   const token = Buffer.from(pair, "utf8").toString("base64");
   return { Authorization: `Basic ${token}` };
@@ -74,7 +74,12 @@ export const GET: APIRoute = async ({ url }) => {
     const text = await res.text();
 
     if (!res.ok) {
-      console.warn("[api/news] HTTP", res.status, wp.toString(), text.slice(0, 200));
+      console.warn(
+        "[api/news] HTTP",
+        res.status,
+        wp.toString(),
+        text.slice(0, 200)
+      );
       const payload = { posts: [] };
       return new Response(JSON.stringify(payload), {
         status: 200,
