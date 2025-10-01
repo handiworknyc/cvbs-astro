@@ -4,13 +4,21 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "sync:flex": "node src/scripts/sync-flex-rest.js",
-    "predev": "npm run sync:flex",
+    "sync:flex:dev": "node --env-file=.env.development src/scripts/sync-flex-rest.js",
+    "sync:flex:prod": "node --env-file=.env.production src/scripts/sync-flex-rest.js",
+
+    "predev": "npm run sync:flex:dev",
     "dev": "astro dev",
-    "prebuild": "npm run sync:flex",
+
+    "prebuild": "npm run sync:flex:prod",
     "build": "astro build",
+
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+
+    "dev:localtls": "NODE_EXTRA_CA_CERTS=./clbr.local.cert npm run dev",
+    "dev:mkcert": "NODE_EXTRA_CA_CERTS=\"$HOME/Library/Application Support/mkcert/rootCA.pem\" npm run dev",
+    "dev:noverify": "NODE_TLS_REJECT_UNAUTHORIZED=0 npm run dev"
   },
   "dependencies": {
     "@astrojs/netlify": "^6.5.11",

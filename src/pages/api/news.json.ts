@@ -17,7 +17,7 @@ function getWpBase(): string | null {
 }
 
 function authHeaders(): Record<string, string> {
-  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
+  const pair = (import.meta.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
   if (!pair) return {};
   const token = Buffer.from(pair, "utf8").toString("base64");
   return { Authorization: `Basic ${token}` };
