@@ -20,10 +20,10 @@ const HAS_BASIC_AUTH = !!(process.env.WP_AUTH_BASIC || "").trim();
 
 /** ---- Types ---- */
 interface Props {
-  sitePhone?: string;         // optional override (wins over API)
-  phoneIconSrc?: string;      // default based on WP/public
-  mapImagePath?: string;      // path relative to WP_BASE_URL or local
-  quoteHref?: string;         // CTA link
+  sitePhone?: string; // optional override (wins over API)
+  phoneIconSrc?: string; // default based on WP/public
+  mapImagePath?: string; // path relative to WP_BASE_URL or local
+  quoteHref?: string; // CTA link
 }
 
 const {
@@ -31,9 +31,11 @@ const {
   // If basic auth is on, default to local assets so they render in the browser
   phoneIconSrc = HAS_BASIC_AUTH
     ? "/phone.svg"
-    : (WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg` : "/phone.svg"),
+    : WP_BASE_URL
+      ? `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg`
+      : "/phone.svg",
   mapImagePath = HAS_BASIC_AUTH
-    ? "/map-bg.png"
+    ? `${WP_BASE_URL}/wp-content/2025/08/map-bg.png`
     : "/wp-content/uploads/2025/08/map-bg.png",
   quoteHref = "#quote",
 } = Astro.props as Props;
@@ -50,11 +52,19 @@ try {
     const text = await res.text();
 
     if (!res.ok) {
-      console.warn("[Footer] Options fetch failed:", res.status, text.slice(0, 160));
+      console.warn(
+        "[Footer] Options fetch failed:",
+        res.status,
+        text.slice(0, 160)
+      );
     } else {
       // tolerate mislabelled content-type
       let json: any = null;
-      try { json = JSON.parse(text); } catch { /* non-JSON (unexpected) */ }
+      try {
+        json = JSON.parse(text);
+      } catch {
+        /* non-JSON (unexpected) */
+      }
       apiPhone = String(json?.site_phone ?? "");
     }
   } else {
@@ -70,7 +80,9 @@ const sitePhone = (sitePhoneProp && String(sitePhoneProp)) || apiPhone || "";
 /** Map image absolute URL (use local when behind basic auth) */
 const mapImageSrc = HAS_BASIC_AUTH
   ? mapImagePath // already local default
-  : (WP_BASE_URL ? `${WP_BASE_URL}${mapImagePath}` : mapImagePath);
+  : WP_BASE_URL
+    ? `${WP_BASE_URL}${mapImagePath}`
+    : mapImagePath;
 
 /** Build tel: href from human-readable phone */
 function telHref(num: string) {
@@ -84,7 +96,11 @@ function telHref(num: string) {
     <div class="w100 tal footer-cta flex" data-scroll-css-progress data-scroll>
       <div class="footer-cta-inner flex tal">
         <div class="footer-cta-left flex">
-          <h2 class="round-vw-lh footer-cta-left-heading lilblur ls-5" data-sal="slide-up" data-sal-duration="1800">
+          <h2
+            class="round-vw-lh footer-cta-left-heading lilblur ls-5"
+            data-sal="slide-up"
+            data-sal-duration="1800"
+          >
             What are you<br />Waiting for?
           </h2>
         </div>
@@ -95,7 +111,9 @@ function telHref(num: string) {
             <span class="min-[900px]:hidden block">Reach<br /> Out</span>
           </h3>
 
-          <div class="abs-full footer-cta-right-content flex align-items-center justify-center tal">
+          <div
+            class="abs-full footer-cta-right-content flex align-items-center justify-center tal"
+          >
             <div
               itemscope
               itemtype="https://schema.org/Organization"
@@ -111,7 +129,9 @@ function telHref(num: string) {
                 >
                   <h3>Long Island Office:</h3>
                   <p>
-                    <span itemprop="streetAddress">50 Vanderbilt Motor Pkwy</span>,
+                    <span itemprop="streetAddress"
+                      >50 Vanderbilt Motor Pkwy</span
+                    >,
                     <span itemprop="addressLocality">Commack</span>
                     <span itemprop="addressRegion">NY</span>
                     <span itemprop="postalCode">11725</span>
@@ -143,7 +163,9 @@ function telHref(num: string) {
               </div>
             </div>
 
-            <div class="footer-cta-btns eyebrow flex justify-center gap-4 abs w100">
+            <div
+              class="footer-cta-btns eyebrow flex justify-center gap-4 abs w100"
+            >
               <a
                 class="footer-btn icon-after flex align-items-center icon-arrow-right footer-btn"
                 href={quoteHref}
@@ -169,9 +191,12 @@ function telHref(num: string) {
             </div>
           </div>
         </div>
-      </div> <!-- /.footer-cta-inner -->
-    </div> <!-- /.footer-cta -->
-  </div> <!-- /.hw-contain -->
+      </div>
+      <!-- /.footer-cta-inner -->
+    </div>
+    <!-- /.footer-cta -->
+  </div>
+  <!-- /.hw-contain -->
 </footer>
 
 <img
