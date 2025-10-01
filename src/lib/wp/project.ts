@@ -8,7 +8,6 @@ import https from "https";
  *  - WP_PROJECT_DEBUG: "1" to enable verbose console logging
  */
 const CACHE_ENABLED = 1;
-
 const DEBUG = 0;
 
 /** Safe logger */
@@ -19,8 +18,9 @@ function dbg(...args: any[]) {
 /** =========================
  *  Env + host detection
  *  ========================= */
-const WP_URL = import.meta.env.WORDPRESS_API_URL as string | undefined;
-const WP_BASE = import.meta.env.WP_BASE_URL as string | undefined;
+const WP_URL = (import.meta.env.WORDPRESS_API_URL as string | undefined)?.trim(); // GraphQL endpoint
+const WP_BASE = (import.meta.env.WP_BASE_URL as string | undefined)?.trim();      // Origin (no /graphql)
+const BASIC_PAIR = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass" (server-only)
 
 function isLocalHost(url?: string) {
   if (!url) return false;
@@ -45,19 +45,46 @@ dbg("init", {
   DEBUG,
 });
 
-/** Single keep-alive agent for all requests.
- *  - In dev + local, allow self-signed (rejectUnauthorized=false)
- *  - Otherwise, enforce normal TLS
- */
+/** =========================
+ *  HTTP helpers
+ *  ========================= */
+
+/** Keep-alive agent; relaxed TLS only for dev+local */
 const agent = new https.Agent({
   keepAlive: true,
   maxSockets: 12,
   rejectUnauthorized: !(isDev && isLocal),
 });
 
+/** Reuse the agent (Node fetch will ignore unknown fields; safe to include) */
 function withTLS(opts: RequestInit = {}): RequestInit {
-  // Always reuse the keep-alive agent to avoid repeated TLS handshakes
-  return { ...opts, agent };
+  return { ...opts, // @ts-expect-error Node fetch ignores `agent`, but many runtimes support it
+    agent
+  };
+}
+
+/** Build Authorization + common headers (server-side) */
+function authHeaders(): Record<string, string> {
+  if (!BASIC_PAIR) return {};
+  const token = Buffer.from(BASIC_PAIR, "utf8").toString("base64");
+  return { Authorization: `Basic ${token}` };
+}
+
+function jsonHeaders(): Record<string, string> {
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "User-Agent": "NetlifySSR/1.0 (+https://netlify.app)",
+    ...authHeaders(),
+  };
+}
+
+function restHeaders(): Record<string, string> {
+  return {
+    Accept: "application/json",
+    "User-Agent": "NetlifySSR/1.0 (+https://netlify.app)",
+    ...authHeaders(),
+  };
 }
 
 /** =========================
@@ -165,18 +192,27 @@ async function fetchProjectFeaturedRaw(projectDatabaseId: number) {
       WP_URL,
       withTLS({
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: jsonHeaders(),
         body: JSON.stringify({ query: gql, variables: { id: projectDatabaseId } }),
+        cache: "no-store",
       })
     );
 
+    const ct = res.headers.get("content-type") || "";
+    const bodyText = await res.text();
+
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      dbg("fetchProjectFeaturedRaw: non-200", { status: res.status, body });
+      dbg("fetchProjectFeaturedRaw: non-200", { status: res.status, body: bodyText.slice(0, 200) });
       return fallback;
     }
 
-    const j = await res.json();
+    // tolerate CF/HTML mislabels
+    let j: any = null;
+    try { j = JSON.parse(bodyText); } catch {
+      dbg("fetchProjectFeaturedRaw: non-JSON body, len=", bodyText.length);
+      return fallback;
+    }
+
     const proj = j?.data?.project;
     const node = proj?.featuredImage?.node;
 
@@ -220,18 +256,32 @@ async function fetchPrimaryAreaRaw(attachmentId: number): Promise<PrimaryArea> {
 
   const url = `${WP_BASE}/wp-json/handiwork/v1/image-primary-area/${attachmentId}`;
   try {
-    const r = await fetch(url, withTLS());
+    const r = await fetch(url, withTLS({
+      method: "GET",
+      headers: restHeaders(),
+      cache: "no-store",
+    }));
+
+    const ct = r.headers.get("content-type") || "";
+    const text = await r.text();
+
     if (!r.ok) {
-      const body = await r.text().catch(() => "");
-      dbg("fetchPrimaryAreaRaw: non-200", { status: r.status, body, url });
+      dbg("fetchPrimaryAreaRaw: non-200", { status: r.status, body: text.slice(0, 200), url });
       return fallback;
     }
-    const json = (await r.json()) as PrimaryArea;
+
+    // Expect JSON; tolerate mislabels
+    let json: any = null;
+    try { json = JSON.parse(text); } catch {
+      dbg("fetchPrimaryAreaRaw: non-JSON body", { ct, sample: text.slice(0, 100) });
+      return fallback;
+    }
+
     dbg("fetchPrimaryAreaRaw:done", {
       post_id: json?.post_id,
       term: json?.term ? { name: json.term.name, id: json.term.term_id, slug: json.term.slug } : null,
     });
-    return json;
+    return json as PrimaryArea;
   } catch (err) {
     dbg("fetchPrimaryAreaRaw:error", String(err), { url });
     return fallback;
