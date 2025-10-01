@@ -1,5 +1,14 @@
 ---
+/**
+ * src/components/blog.astro
+ * Server-side latest posts block that DOES NOT hit /api/blog-latest.json.
+ * It queries WP GraphQL directly using the auth-aware fetchAPI helper.
+ * - Never throws during SSR (renders nothing if fetch fails)
+ * - Optionally filters by taxonomy NAME (best-effort if provided)
+ */
+
 import BlogPrevItem from "@/components/BlogPrevItem.astro";
+import { fetchAPI } from "@/lib/wp"; // auth-aware (uses WORDPRESS_API_URL + WP_AUTH_BASIC)
 
 type ImageMap = Record<string, string>;
 interface ImageLike { src?: string; alt?: string; sizes?: ImageMap }
@@ -18,40 +27,93 @@ interface TaxTerm { taxonomy: string; term_id: number; name?: string }
 interface Props {
   taxonomy?: TaxTerm[];   // e.g. [{ taxonomy: "service", term_id: 8, name: "Floor Care" }]
   idPrefix?: string;
+  perPage?: number;
 }
 
 const {
   taxonomy = [],
   idPrefix = "blog-prev-wrap",
+  perPage = 6,
 } = Astro.props as Props;
 
-// ALWAYS fetch from API (server-side)
-const apiURL = new URL("/api/blog-latest.json", Astro.url);
-apiURL.searchParams.set("perPage", "6"); // mirror PHP numberposts
-
+// Best-effort: if a taxonomy name is provided, we’ll match posts that list that name in categories/tags.
+// (Filtering custom taxonomies via GraphQL requires knowing exact schema/enums; this keeps it resilient.)
 let hasTax = false;
 let taxName = "";
 if (Array.isArray(taxonomy) && taxonomy.length) {
   hasTax = true;
+  // prefer the first provided name if present
   for (const t of taxonomy) {
-    if (t?.taxonomy && t?.term_id != null) {
-      // relies on your WP taxonomy rest_base matching e.g. "service" or "service-area"
-      apiURL.searchParams.append(String(t.taxonomy), String(t.term_id));
-      taxName = t.name || taxName || "";
-    }
+    if (t?.name) { taxName = t.name; break; }
   }
 }
 
-const r = await fetch(apiURL);
-let latestPosts: PostLike[] = [];
-if (r.ok) {
-  const data = await r.json();
-  latestPosts = data.latestPosts ?? [];
-} else {
-  console.error("[blog.astro] API failed:", r.status, await r.text());
+const GQL = /* GraphQL */ `
+  query BlogLatest($first:Int!) {
+    posts(first: $first, where: { orderby: { field: DATE, order: DESC } }) {
+      nodes {
+        databaseId
+        title
+        date
+        uri
+        excerpt
+        categories { nodes { name uri } }
+        tags { nodes { name uri } }
+        featuredImage {
+          node {
+            sourceUrl
+            srcSet
+            altText
+            mediaDetails { width height }
+          }
+        }
+      }
+    }
+  }
+`;
+
+function toPostLike(n: any): PostLike {
+  const img = n?.featuredImage?.node;
+  const sizes: ImageMap = {};
+  if (img?.srcSet) {
+    // optionally parse srcSet into sizes map (simple split)
+    for (const part of String(img.srcSet).split(",")) {
+      const [u, w] = part.trim().split(" ");
+      if (u && w) sizes[w] = u;
+    }
+  }
+  return {
+    id: n?.databaseId ?? n?.id,
+    title: n?.title ?? "",
+    date: n?.date ?? "",
+    dateISO: n?.date ?? "",
+    excerpt: n?.excerpt ?? "",
+    permalink: n?.uri ?? "#",
+    image: img ? { src: img.sourceUrl, alt: img.altText || "", sizes } : null,
+  };
 }
 
+let latestPosts: PostLike[] = [];
+try {
+  const data = await fetchAPI(GQL, { first: perPage });
+  const nodes = data?.posts?.nodes ?? [];
+  let mapped = nodes.map(toPostLike);
 
+  if (hasTax && taxName) {
+    const nameLower = taxName.toLowerCase();
+    mapped = mapped.filter((_, idx) => {
+      const node = nodes[idx];
+      const cats = (node?.categories?.nodes ?? []).map((c: any) => (c?.name || "").toLowerCase());
+      const tags = (node?.tags?.nodes ?? []).map((t: any) => (t?.name || "").toLowerCase());
+      return cats.includes(nameLower) || tags.includes(nameLower);
+    });
+  }
+
+  latestPosts = mapped;
+} catch (e: any) {
+  console.error("[blog.astro] GraphQL fetch failed:", e?.message || e);
+  latestPosts = [];
+}
 
 const count = latestPosts.length;
 const uniq = `${idPrefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -65,8 +127,6 @@ const countClass = `count-${count}`;
         <h2 class="inline-block our-blog-tag-wrap">
           <div class="eyebrow our-blog-tag bg-tag">Our Blog</div>
         </h2>
-
-			
         <div class="blog-subtitle lite tac">
           Exploring trends, tools, and best practices in janitorial and maintenance services.
         </div>

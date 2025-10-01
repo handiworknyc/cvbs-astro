@@ -1,68 +1,74 @@
 ---
 /**
  * src/components/GFForm.astro
- * Reusable Gravity Forms wrapper:
- *  - SSR: tries to fetch rendered GF HTML.
- *  - Client: initializes submit handler; if SSR failed or env missing, fetches HTML on the client.
+ * Gravity Forms wrapper:
+ *  - SSR: tries to fetch rendered GF HTML (server sends Basic Auth).
+ *  - Client: initializes handlers; can still enhance/submit even if SSR failed.
  */
 import { fetchRenderedHTML } from "@/lib/gf/api";
 
-const {
-  formId: rawId,
-  showTitle = false,
-  showDescription = true,
-  ajax = true,
-  tabindex = 0,
-  theme = "gravity-theme",
-  viaProxy = false,
-  class: className = "",
-  id: hostId = undefined,
-} = Astro.props as {
+type Props = {
   formId: number | string;
   showTitle?: boolean;
   showDescription?: boolean;
   ajax?: boolean;
   tabindex?: number;
   theme?: string;
-  viaProxy?: boolean; // submit via /api/gf/submit proxy if true
+  /** submit via /api/gf/submit proxy if true (recommended in browser) */
+  viaProxy?: boolean;
   class?: string;
   id?: string;
 };
 
-const formId = typeof rawId === "string" ? parseInt(rawId, 10) : Number(rawId);
-if (!Number.isFinite(formId) || formId <= 0) {
-  throw new Error("<GFForm> requires a positive numeric formId");
+const {
+  formId: rawId,
+  showTitle = false,
+  showDescription = true,
+  ajax = false,              // keep GF ajax OFF by default; SSR handles markup
+  tabindex = 0,
+  theme = "gravity-theme",
+  viaProxy = true,           // proxy submit by default (avoids CORS/auth issues)
+  class: className = "",
+  id: hostId = undefined,
+} = Astro.props as Props;
+
+// Parse and validate formId safely (never throw during SSR)
+const parsed = typeof rawId === "string" ? parseInt(rawId, 10) : Number(rawId);
+const validFormId = Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+if (!validFormId) {
+  console.warn("[GFForm] missing/invalid formId:", rawId);
 }
 
-// Expose PUBLIC base for client fallback fetch; private env is SSR-only
+// Public base is optional; DO NOT put secrets here.
+// If you set PUBLIC_WP_BASE_URL, client-side fallback renders can use it (not recommended with Basic Auth).
 const PUBLIC_WP_BASE = (import.meta.env.PUBLIC_WP_BASE_URL as string | undefined) || "";
 
-let html = "";
-try {
-  html = await fetchRenderedHTML(formId, {
+// Try to SSR the form HTML (returns null on failure; never throws)
+let html: string | null = null;
+if (validFormId) {
+  html = await fetchRenderedHTML(validFormId, {
     title: showTitle,
     description: showDescription,
     ajax,
     tabindex,
     theme,
   });
-} catch (err) {
-  console.warn("[GFForm] SSR render fetch failed:", err);
-  // Leave `html` empty; client script will fetch on mount.
 }
+const hadSSR = !!html;
 ---
 
 <div
   class={`gf-host ${className}`}
   id={hostId}
-  data-gf-form-id={formId}
+  data-gf-form-id={validFormId ?? ""}
   data-gf-proxy={viaProxy ? "1" : "0"}
   data-wp-base={PUBLIC_WP_BASE}
   data-gf-theme={theme}
+  data-gf-had-ssr={hadSSR ? "1" : "0"}
 >
-  {html
-    ? <Fragment set:html={html} />
-    : <div class="gf-skeleton" aria-busy="true">Loading form…</div>}
+  {hadSSR
+    ? <Fragment set:html={html!} />
+    : <div class="gf-skeleton" aria-busy="true">Form temporarily unavailable.</div>}
 </div>
 
 <script>
@@ -79,4 +85,3 @@ try {
   // If your site uses view transitions / SPA-style nav, run after each navigation too
   addEventListener("astro:page-load", () => initGFClient());
 </script>
-
