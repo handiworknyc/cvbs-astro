@@ -1,27 +1,40 @@
 ---
 /**
- * Footer.astro
- * - Fetches site phone/email from WP REST: /wp-json/hw/v1/options
- * - Props override API (sitePhone prop wins if provided)
- *
- * Env:
- *   import.meta.env.WP_BASE_URL  // e.g. https://example.com
+ * src/components/Footer.astro
+ * - Server-side fetch of /wp-json/hw/v1/options with Basic Auth (if WP_AUTH_BASIC set)
+ * - Prop override wins (sitePhone)
+ * - Uses local image fallbacks if site is behind basic auth (so icons show in browsers)
  */
 
-const WP_BASE_URL = import.meta.env.WP_BASE_URL || "";
+const WP_BASE_URL = (import.meta.env.WP_BASE_URL || "").trim();
+
+/** Basic Auth header for WP Engine (server-side only) */
+function authHeaders(): Record<string, string> {
+  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
+  if (!pair) return {};
+  const token = Buffer.from(pair, "utf8").toString("base64");
+  return { Authorization: `Basic ${token}` };
+}
+
+const HAS_BASIC_AUTH = !!(process.env.WP_AUTH_BASIC || "").trim();
 
 /** ---- Types ---- */
 interface Props {
   sitePhone?: string;         // optional override (wins over API)
-  phoneIconSrc?: string;      // default based on WP_BASE_URL
-  mapImagePath?: string;      // path relative to WP_BASE_URL
+  phoneIconSrc?: string;      // default based on WP/public
+  mapImagePath?: string;      // path relative to WP_BASE_URL or local
   quoteHref?: string;         // CTA link
 }
 
 const {
   sitePhone: sitePhoneProp,
-  phoneIconSrc = WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg` : "/phone.svg",
-  mapImagePath = "/wp-content/uploads/2025/08/map-bg.png",
+  // If basic auth is on, default to local assets so they render in the browser
+  phoneIconSrc = HAS_BASIC_AUTH
+    ? "/phone.svg"
+    : (WP_BASE_URL ? `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg` : "/phone.svg"),
+  mapImagePath = HAS_BASIC_AUTH
+    ? "/map-bg.png"
+    : "/wp-content/uploads/2025/08/map-bg.png",
   quoteHref = "#quote",
 } = Astro.props as Props;
 
@@ -29,25 +42,35 @@ const {
 let apiPhone = "";
 try {
   if (WP_BASE_URL) {
-    const res = await fetch(`${WP_BASE_URL}/wp-json/hw/v1/options`, { cache: "no-store" });
-    if (res.ok) {
-      const json = await res.json();
-      apiPhone = (json?.site_phone ?? "").toString();
+    const res = await fetch(`${WP_BASE_URL}/wp-json/hw/v1/options`, {
+      cache: "no-store",
+      headers: { Accept: "application/json", ...authHeaders() },
+    });
+    const ct = res.headers.get("content-type") || "";
+    const text = await res.text();
+
+    if (!res.ok) {
+      console.warn("[Footer] Options fetch failed:", res.status, text.slice(0, 160));
     } else {
-      console.warn("[Footer] Options fetch failed:", res.status, res.statusText);
+      // tolerate mislabelled content-type
+      let json: any = null;
+      try { json = JSON.parse(text); } catch { /* non-JSON (unexpected) */ }
+      apiPhone = String(json?.site_phone ?? "");
     }
   } else {
     console.warn("[Footer] WP_BASE_URL is missing; skipping options fetch.");
   }
-} catch (e) {
-  console.warn("[Footer] Options fetch error:", e);
+} catch (e: any) {
+  console.warn("[Footer] Options fetch error:", e?.message || e);
 }
 
 /** Final phone: prop overrides API */
 const sitePhone = (sitePhoneProp && String(sitePhoneProp)) || apiPhone || "";
 
-/** Map image absolute URL */
-const mapImageSrc = WP_BASE_URL ? `${WP_BASE_URL}${mapImagePath}` : mapImagePath;
+/** Map image absolute URL (use local when behind basic auth) */
+const mapImageSrc = HAS_BASIC_AUTH
+  ? mapImagePath // already local default
+  : (WP_BASE_URL ? `${WP_BASE_URL}${mapImagePath}` : mapImagePath);
 
 /** Build tel: href from human-readable phone */
 function telHref(num: string) {
@@ -152,11 +175,11 @@ function telHref(num: string) {
 </footer>
 
 <img
-    data-scroll
-    decoding="async"
-    loading="lazy"
-    fetchpriority="low"
-    src={mapImageSrc}
-    class="map-parallax"
-    alt="Map background"
+  data-scroll
+  decoding="async"
+  loading="lazy"
+  fetchpriority="low"
+  src={mapImageSrc}
+  class="map-parallax"
+  alt="Map background"
 />
