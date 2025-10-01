@@ -1,16 +1,15 @@
 ---
+export const prerender = true; // emit dist/index.html
+
 import BaseLayout from "../layouts/MainLayout.astro";
 import LayoutRenderer from "../lib/wp/LayoutRenderer.astro";
 import { getFlexiblePageByUri } from "../lib/api";
 
-// homepage is always `/`
-const page = getFlexiblePageByUri("/");
-
-if (!page) {
-  throw new Error("No home.json flexible content found in src/content/wp/pages/");
-}
+// Safe: don't throw, render a fallback if content isn't there yet
+const page = await getFlexiblePageByUri("/");  // use await if it's async
+const title = page?.title ?? "CVBS";
+const layouts = page?.layouts ?? [];
 ---
-
-<BaseLayout title={page.title}>
-  <LayoutRenderer layouts={page.layouts || []} />
+<BaseLayout title={title}>
+  {layouts.length ? <LayoutRenderer layouts={layouts} /> : <p>Homepage placeholder.</p>}
 </BaseLayout>
