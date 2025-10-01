@@ -3,10 +3,12 @@ import react from '@astrojs/react';
 import node from '@astrojs/node';
 import tailwind from '@astrojs/tailwind';
 
+import netlify from '@astrojs/netlify';
+
 export default defineConfig({
   integrations: [tailwind(), react()],
   output: 'server',
-  adapter: node({ mode: 'standalone' }),
+  adapter: netlify(),
   vite: {
     resolve: {
       alias: {
