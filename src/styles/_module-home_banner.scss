@@ -3,8 +3,8 @@
   justify-content: flex-start;
   align-items: stretch;
   padding-top: calc(var(--headerHeight) + 2rem);
-  transition: opacity .15s linear !important;
-  transition-delay: .005s !important;
+  transition: opacity .1s linear !important;
+  transition-delay: .00025s !important;
 }
 
 @media (min-width: 1100px) {
