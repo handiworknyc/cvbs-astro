@@ -16,7 +16,7 @@
   src: url('/fonts/barlow-400.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 /* Barlow Medium */
@@ -25,7 +25,7 @@
   src: url('/fonts/barlow-500.woff2') format('woff2');
   font-weight: 500;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 /* Barlow SemiBold */
@@ -34,5 +34,5 @@
   src: url('/fonts/barlow-600.woff2') format('woff2');
   font-weight: 600;
   font-style: normal;
-  font-display: swap;
+  font-display: block
 }
