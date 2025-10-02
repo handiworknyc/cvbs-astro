@@ -8,6 +8,10 @@ import { resolve } from 'node:path';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 
+if (process.env.NODE_ENV === "development") {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
+
 export default defineConfig({
   integrations: [tailwind(), react()],
   output: 'server',
