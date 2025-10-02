@@ -1,32 +1,27 @@
 ---
-export const prerender = false;
-
 import { getHeaderMenu } from "../lib/wp/getHeaderMenu";
-import { getEnv, toBase64 } from "@/lib/env"; // cross-runtime env + base64 helpers
 
-/* ---------------------------
-   Env + base URLs (Edge-safe)
----------------------------- */
-const WP_BASE_URL = getEnv("WP_BASE_URL"); // prefer runtime env
-const WORDPRESS_API_URL = getEnv("WORDPRESS_API_URL");
+const WP_BASE_URL = (import.meta.env.WP_BASE_URL || "").trim();
 
-/** Basic Auth header for WP (Edge/Node safe) */
+/** Basic Auth header for WP Engine staging (server-side only) */
 function authHeaders() {
-  const pair = getEnv("WP_AUTH_BASIC"); // "user:pass"
+  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
   if (!pair) return {};
-  const token = toBase64(pair);
-  return token ? { Authorization: `Basic ${token}` } : {};
+  const token = Buffer.from(pair, "utf8").toString("base64");
+  return { Authorization: `Basic ${token}` };
 }
 
 /** Normalize host (strip www.) for robust same-origin checks */
-function normalizeHost(host: string) {
-  return String(host || "").replace(/^www\./i, "").toLowerCase();
+function normalizeHost(host) {
+  return String(host || "")
+    .replace(/^www\./i, "")
+    .toLowerCase();
 }
 
 /** Convert WP absolute URLs in HTML to Astro-relative paths (preserves ?query and #hash). */
-function rewriteMenuUrls(html: string, wpBase: string) {
+function rewriteMenuUrls(html, wpBase) {
   if (!html) return html;
-  let base: URL | null = null;
+  let base = null;
   try {
     base = new URL(wpBase);
   } catch {
@@ -41,7 +36,10 @@ function rewriteMenuUrls(html: string, wpBase: string) {
       // Absolute URL?
       if (/^https?:\/\//i.test(href)) {
         const u = new URL(href);
-        if (base && normalizeHost(u.hostname) === normalizeHost(base.hostname)) {
+        if (
+          base &&
+          normalizeHost(u.hostname) === normalizeHost(base.hostname)
+        ) {
           const path = u.pathname || "/";
           const search = u.search || "";
           const hash = u.hash || "";
@@ -58,113 +56,89 @@ function rewriteMenuUrls(html: string, wpBase: string) {
   });
 }
 
-/* ---------------------------
-   DIAGNOSTIC: live REST probe
----------------------------- */
-const baseFromGql = WORDPRESS_API_URL ? WORDPRESS_API_URL.replace(/\/graphql\/?$/i, "") : "";
-const resolvedBase = baseFromGql || WP_BASE_URL || "";
-const endpoint = resolvedBase ? new URL("/wp-json/astro/v1/headermenu", resolvedBase).toString() : null;
-
-const pair = getEnv("WP_AUTH_BASIC");
-const authHeader = pair ? { Authorization: `Basic ${toBase64(pair)}` } : {};
-const hasAuth = !!authHeader.Authorization;
-
-let diag = {
-  runtime: typeof Deno !== "undefined" ? "edge" : "node",
-  endpoint,
-  hasAuth,
-  status: null as null | number,
-  contentType: "",
-  bodySnippet: "",
-  error: ""
-};
-
-if (endpoint) {
-  try {
-    const r = await fetch(endpoint, {
-      headers: { Accept: "application/json, text/html;q=0.9", ...authHeader },
-      cache: "no-store"
-    });
-    diag.status = r.status;
-    diag.contentType = r.headers.get("content-type") || "";
-    const t = await r.text();
-    diag.bodySnippet = t.replace(/\s+/g, " ").slice(0, 260);
-  } catch (e: any) {
-    diag.error = String(e).slice(0, 260);
-  }
-}
-
-/* ---------------------------
-   Fetch WP menu (never throw)
----------------------------- */
+// Fetch WP menu HTML (never throw)
 let rawHeaderMenu = "";
 try {
-  rawHeaderMenu = await getHeaderMenu(); // includes server-side auth internally
-} catch (e: any) {
+  rawHeaderMenu = await getHeaderMenu(); // should include server-side auth internally
+} catch (e) {
   console.error("[siteNav] getHeaderMenu failed:", e?.message || e);
 }
 const headerMenu = rewriteMenuUrls(rawHeaderMenu, WP_BASE_URL);
 
-/* ---------------------------
-   Options: phone/email probe
----------------------------- */
-async function tryFetch(url: string) {
+/** Server-side JSON fetch with Basic Auth + tolerant parsing */
+async function tryFetch(url) {
   try {
     const res = await fetch(url, {
       headers: { Accept: "application/json", ...authHeaders() },
-      cache: "no-store"
     });
-    const text = await res.text(); // tolerate non-JSON
-    let data: any = null;
-    try { data = JSON.parse(text); } catch {}
+    const text = await res.text(); // handle non-JSON error bodies too
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      /* not JSON */
+    }
     return { ok: res.ok, status: res.status, url, data, raw: text };
-  } catch (err: any) {
+  } catch (err) {
     return { ok: false, status: 0, url, data: null, raw: String(err) };
   }
 }
 
-function cleanTel(s: string) {
+function cleanTel(s) {
   return `tel:${String(s || "").replace(/[^+\d]/g, "")}`;
 }
 
+// ---- Fetch email/phone from Options (probe multiple endpoints) ----
 const endpoints = WP_BASE_URL
   ? [
       `${WP_BASE_URL}/wp-json/hw/v1/options`,
       `${WP_BASE_URL}/wp-json/acf/v3/options/options`,
       `${WP_BASE_URL}/wp-json/acf/v3/options`,
       `${WP_BASE_URL}/wp-json/acf/options/options`,
-      `${WP_BASE_URL}/wp-json/options/acf`
+      `${WP_BASE_URL}/wp-json/options/acf`,
     ]
   : [];
 
 let email = "";
 let phone = "";
+let probeLog = [];
+let chosenEndpoint = null;
 
 for (const url of endpoints) {
   const r = await tryFetch(url);
-  const root = (r.data?.acf ?? r.data) ?? null;
+  const keys =
+    r.data && typeof r.data === "object"
+      ? Object.keys(r.data?.acf ?? r.data)
+      : undefined;
+  probeLog.push({ url: r.url, status: r.status, ok: r.ok, keys });
+
+  // Accept either { site_phone, site_email } OR { acf: { site_phone, site_email } }
+  const root = r.data?.acf ?? r.data ?? null;
   const maybePhone = root?.site_phone;
   const maybeEmail = root?.site_email;
+
   if (maybePhone || maybeEmail) {
     phone = String(maybePhone ?? "");
     email = String(maybeEmail ?? "");
+    chosenEndpoint = url;
     break;
   }
 }
 
-// Optional fallbacks via env (only if you expose them)
-email = email || getEnv("PUBLIC_FALLBACK_EMAIL") || "";
-phone = phone || getEnv("PUBLIC_FALLBACK_PHONE") || "";
+// Optional fallbacks via env (define if helpful)
+email = email || import.meta.env.PUBLIC_FALLBACK_EMAIL || "";
+phone = phone || import.meta.env.PUBLIC_FALLBACK_PHONE || "";
 
 // Hrefs & assets
 const phoneHref = phone ? cleanTel(phone) : undefined;
 
-// NOTE: If WP is behind Basic Auth, these image URLs won’t load client-side.
-// Consider mirroring assets to /public for prod.
-const logoSrc = `${WP_BASE_URL}/wp-content/uploads/2025/08/cropped-cvbsfinalnew.png.webp`;
-const phoneIcon = `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg`;
-const googleLogo = `${WP_BASE_URL}/wp-content/uploads/2025/09/google.svg`;
-const googleStars = `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg`;
+// NOTE: If WP is behind Basic Auth, these image URLs won’t load in the browser.
+// Consider copying these assets to /public and using relative paths instead.
+const logoSrc = `${WP_BASE_URL}/wp-content/uploads/2025/08/cropped-cvbsfinalnew.png.webp`,
+      phoneIcon = `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg`,
+      googleLogo = `${WP_BASE_URL}/wp-content/uploads/2025/09/google.svg`,
+      googleStars = `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg`;
+
 ---
 
 <header id="header" class="group mob-menu-abs">
@@ -183,30 +157,23 @@ const googleStars = `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg`;
           >
             <!-- dump the WP menu <li>s (or a full <ul>) -->
             <Fragment set:html={headerMenu || ""} />
-
-            {(!headerMenu || !headerMenu.trim()) && (
-              <li class="menu-item debug-empty" style="color:#c00;max-width:640px;white-space:normal;line-height:1.25;">
-                <strong>Menu unavailable</strong>
-                <div style="font-size:12px;margin-top:.25rem">
-                  <div><code>runtime</code>: {diag.runtime}</div>
-                  <div><code>endpoint</code>: {diag.endpoint || "(no base URL resolved)"}</div>
-                  <div><code>hasAuth</code>: {String(diag.hasAuth)}</div>
-                  <div><code>status</code>: {diag.status === null ? "(no request)" : String(diag.status)}</div>
-                  <div><code>content-type</code>: {diag.contentType || "(n/a)"}</div>
-                  {diag.bodySnippet && (<div><code>body</code>: {diag.bodySnippet}</div>)}
-                  {diag.error && (<div><code>error</code>: {diag.error}</div>)}
-                </div>
-              </li>
-            )}
-
-            {phone && (
-              <li class="header-phone menu-item">
-                <a href={phoneHref} class="c-green flex-wrap align-items-center tal">
-                  <img class="critical of-contain" src={phoneIcon} alt="Phone" />
-                  <span class="the-num">{phone}</span>
-                </a>
-              </li>
-            )}
+            {
+              phone && (
+                <li class="header-phone menu-item">
+                  <a
+                    href={phoneHref}
+                    class="c-green flex-wrap align-items-center tal"
+                  >
+                    <img
+                      class="critical of-contain"
+                      src={phoneIcon}
+                      alt="Phone"
+                    />
+                    <span class="the-num">{phone}</span>
+                  </a>
+                </li>
+              )
+            }
           </ul>
         </div>
       </nav>
@@ -214,19 +181,20 @@ const googleStars = `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg`;
       <div class="header-right align-items-center flex-wrap">
         <a
           class="block header-btn header-quote-btn c-white bg-brandgreen clash"
-          href="/"
-          >Get a Quote</a
+          href="/">Get a Quote</a
         >
 
-        {phone && (
-          <a
-            href={phoneHref}
-            class="mob-header-phone c-green flex-wrap align-items-center tal"
-          >
-            <img class="critical" src={phoneIcon} alt="Phone" />
-            <span class="the-num">{phone}</span>
-          </a>
-        )}
+        {
+          phone && (
+            <a
+              href={phoneHref}
+              class="mob-header-phone c-green flex-wrap align-items-center tal"
+            >
+              <img class="critical" src={phoneIcon} alt="Phone" />
+              <span class="the-num">{phone}</span>
+            </a>
+          )
+        }
 
         <a
           class="google-reviews clash flex-wrap tal align-items-center"
@@ -250,8 +218,7 @@ const googleStars = `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg`;
           class="nav-toggle collapsed first-load"
           aria-label="Click to view the main menu"
           data-toggle="collapse"
-          data-target="#main-nav"
-          ><span></span></button
+          data-target="#main-nav"><span></span></button
         >
       </div>
     </div>
@@ -273,12 +240,22 @@ const googleStars = `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg`;
   HW.slidemsgclosing = false;
 
   HW.setHeaderVar = function () {
-    var headerheight = theheader.offsetHeight;
+    var slidemsgheight = 0,
+      headerheight = theheader.offsetHeight;
+
     HW.headerHeight = headerheight;
-    document.querySelector(":root").style.setProperty("--headerHeight", headerheight + "px");
+
+    var thyContainer = document.querySelectorAll(
+      ".header-inner > .container-fluid > .flex-wrap"
+    )[0];
+
+    document
+      .querySelector(":root")
+      .style.setProperty("--headerHeight", headerheight + "px");
   };
 
   var sctop = document.documentElement.scrollTop;
+
   if (sctop == 0) {
     HW.$html.classList.add("hw-headroom-top");
   }
