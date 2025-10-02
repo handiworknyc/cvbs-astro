@@ -73,7 +73,6 @@ function ensureActiveForFilled(root: ParentNode) {
       (input.getAttribute("value") ?? "").length > 0;
     if (hasVal) bump(input);
     else {
-      // Best-effort check for :-webkit-autofill; matches() may throw if selector unsupported
       try {
         // @ts-ignore – pseudo selector may not be typed
         if (input.matches(":-webkit-autofill")) bump(input);
@@ -139,7 +138,6 @@ function setupLabelSwapDelegation(host: HTMLElement) {
       const isComplex = !!t.closest(".ginput_complex");
       if (isComplex) t.parentElement?.classList.add("active");
       else t.closest(".gfield")?.classList.add("active");
-      // Kick a short autofill burst (Chrome often fills right after focus)
       setTimeout(() => { ensureActiveForFilled(host); startAutofillBurst(host); }, 50);
     } else if (t.matches(".gfield textarea")) {
       t.closest(".gfield")?.classList.add("active");
@@ -148,14 +146,12 @@ function setupLabelSwapDelegation(host: HTMLElement) {
   });
 
   host.addEventListener("keydown", (ev) => {
-    // Chrome profile autofill is commonly committed with Enter/Tab/ArrowDown
     if (ev.key === "Enter" || ev.key === "Tab" || ev.key === "ArrowDown") {
       startAutofillBurst(host);
     }
   });
 
   host.addEventListener("pointerdown", () => {
-    // Clicking into a field often triggers the autofill dropdown → start polling
     startAutofillBurst(host);
   });
 
@@ -414,11 +410,8 @@ function renderConfirmation(host: HTMLElement, html: string, ok: boolean) {
   box.innerHTML = html;
   box.setAttribute("data-ok", ok ? "1" : "0");
 
-  // Only animate on success
   if (ok) {
-    // reset any previous run so it can replay
     box.classList.remove("gf-confirmation--in");
-    // force reflow to restart transition
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     (box as HTMLElement).offsetHeight;
     box.classList.add("gf-confirmation--in");
@@ -427,6 +420,38 @@ function renderConfirmation(host: HTMLElement, html: string, ok: boolean) {
   }
 }
 
+// Wrapper + submitting UI helpers
+function getWrapper(form: HTMLFormElement): HTMLElement {
+  return (
+    form.closest<HTMLElement>(".banner-form-wrap") ||
+    form.closest<HTMLElement>(".gf-host") ||
+    form
+  );
+}
+
+function setSubmitting(wrapper: HTMLElement, on: boolean) {
+  wrapper.classList.toggle("is-submitting", on);
+  wrapper.setAttribute("aria-busy", on ? "true" : "false");
+
+  let spinner = wrapper.querySelector<HTMLElement>(".spinner");
+
+  console.log(wrapper);
+  
+  if (on) {
+    if (!spinner) {
+      spinner = document.createElement("div");
+      spinner.className = "spinner";
+      spinner.innerHTML = `
+        <div class="bounce1"></div>
+        <div class="bounce2"></div>
+        <div class="bounce3"></div>
+      `;
+      wrapper.appendChild(spinner);
+    }
+  } else {
+    spinner?.remove();
+  }
+}
 
 function wireSubmit(host: HTMLElement) {
   host.addEventListener(
@@ -436,6 +461,10 @@ function wireSubmit(host: HTMLElement) {
       if (!form) return;
       ev.preventDefault();
 
+      // Double-submit guard
+      if ((form as any)._gfSubmitting) return;
+      (form as any)._gfSubmitting = true;
+
       const formId = Number(host.dataset.gfFormId || "0");
       const viaProxy = host.dataset.gfProxy === "1";
       const base = (host.dataset.wpBase || "").replace(/\/+$/, "");
@@ -443,7 +472,10 @@ function wireSubmit(host: HTMLElement) {
       const submitBtn =
         form.querySelector<HTMLButtonElement>("button[type=submit], input[type=submit]");
       submitBtn?.setAttribute("disabled", "true");
-      form.classList.add("is-submitting");
+
+      const wrapper = getWrapper(form);
+      console.log(wrapper);
+      setSubmitting(wrapper, true);
       clearErrors(host);
 
       try {
@@ -472,9 +504,8 @@ function wireSubmit(host: HTMLElement) {
         const msg = res.message || "Thanks! Your form has been submitted.";
         renderConfirmation(host, msg, true);
 
-        // Add the class to the nearest .banner-form-wrap
-        const bannerWrap = form.closest<HTMLElement>(".banner-form-wrap");
-        if (bannerWrap) bannerWrap.classList.add("submitted");
+        // Success styling on the same wrapper
+        wrapper.classList.add("submitted");
 
         // Reset + refresh visuals
         form.reset();
@@ -487,7 +518,8 @@ function wireSubmit(host: HTMLElement) {
         renderConfirmation(host, "Sorry, we couldn’t submit the form right now.", false);
       } finally {
         submitBtn?.removeAttribute("disabled");
-        form.classList.remove("is-submitting");
+        setSubmitting(wrapper, false);
+        (form as any)._gfSubmitting = false;
       }
     },
     { capture: true }
