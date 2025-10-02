@@ -5,7 +5,7 @@ const WP_BASE_URL = (import.meta.env.WP_BASE_URL || "").trim();
 
 /** Basic Auth header for WP Engine staging (server-side only) */
 function authHeaders() {
-  const pair = (import.meta.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
+  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
   if (!pair) return {};
   const token = Buffer.from(pair, "utf8").toString("base64");
   return { Authorization: `Basic ${token}` };
@@ -134,18 +134,11 @@ const phoneHref = phone ? cleanTel(phone) : undefined;
 
 // NOTE: If WP is behind Basic Auth, these image URLs won’t load in the browser.
 // Consider copying these assets to /public and using relative paths instead.
-const logoSrc = WP_BASE_URL
-  ? `${WP_BASE_URL}/wp-content/uploads/2025/08/cropped-cvbsfinalnew.png.webp`
-  : "/logo.png";
-const phoneIcon = WP_BASE_URL
-  ? `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg`
-  : "/phone.svg";
-const googleLogo = WP_BASE_URL
-  ? `${WP_BASE_URL}/wp-content/uploads/2025/09/google.svg`
-  : "/google.svg";
-const googleStars = WP_BASE_URL
-  ? `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg`
-  : "/stars.svg";
+const logoSrc = `${WP_BASE_URL}/wp-content/uploads/2025/08/cropped-cvbsfinalnew.png.webp`,
+      phoneIcon = `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg`,
+      googleLogo = `${WP_BASE_URL}/wp-content/uploads/2025/09/google.svg`,
+      googleStars = `${WP_BASE_URL}/wp-content/uploads/2025/08/stars.svg`;
+
 ---
 
 <header id="header" class="group mob-menu-abs">

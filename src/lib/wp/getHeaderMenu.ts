@@ -16,7 +16,7 @@ export async function getHeaderMenu(): Promise<string> {
   const endpoint = new URL("/wp-json/astro/v1/headermenu", base).toString();
 
   // Basic Auth for WP Engine staging (server-side only)
-  const pair = (import.meta.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
+  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
   const headers: Record<string, string> = {
     Accept: "application/json, text/html;q=0.9",
     "User-Agent": "NetlifySSR/1.0 (+https://netlify.app)",
