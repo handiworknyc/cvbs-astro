@@ -157,24 +157,26 @@ const logoSrc = `${WP_BASE_URL}/wp-content/uploads/2025/08/cropped-cvbsfinalnew.
           >
             <!-- dump the WP menu <li>s (or a full <ul>) -->
             <Fragment set:html={headerMenu || ""} />
+
+            {(!headerMenu || !headerMenu.trim()) && (
+              <li class="menu-item debug-empty" style="color:#c00">
+                <!-- Menu empty: check WP endpoint / auth / env -->
+                Menu unavailable
+              </li>
+            )}
+
             {
               phone && (
                 <li class="header-phone menu-item">
-                  <a
-                    href={phoneHref}
-                    class="c-green flex-wrap align-items-center tal"
-                  >
-                    <img
-                      class="critical of-contain"
-                      src={phoneIcon}
-                      alt="Phone"
-                    />
+                  <a href={phoneHref} class="c-green flex-wrap align-items-center tal">
+                    <img class="critical of-contain" src={phoneIcon} alt="Phone" />
                     <span class="the-num">{phone}</span>
                   </a>
                 </li>
               )
             }
           </ul>
+
         </div>
       </nav>
 

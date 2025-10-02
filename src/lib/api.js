@@ -1,29 +1,20 @@
 // src/lib/api.js
 import { fetchAPI } from "./wp.js";
+import { getEnv, toBase64 } from "./env.ts"; // note .ts import is fine with Vite/TS
 
-function basicAuthHeader(pair) {
-  const s = String(pair || "").trim();
-  if (!s) return {};
-  try {
-    const token =
-      typeof btoa === "function" ? btoa(s) :
-      (typeof Buffer !== "undefined" ? Buffer.from(s, "utf8").toString("base64") : "");
-    return token ? { Authorization: `Basic ${token}` } : {};
-  } catch {
-    return {};
-  }
+function authHeaders() {
+  const pair = getEnv("WP_AUTH_BASIC");
+  if (!pair) return {};
+  const token = toBase64(pair);
+  return token ? { Authorization: `Basic ${token}` } : {};
 }
 
 function getGraphQLEndpoint() {
-  const wp = (import.meta.env.WORDPRESS_API_URL || "").trim();
-  const base = (import.meta.env.WP_BASE_URL || "").trim();
+  const wp = getEnv("WORDPRESS_API_URL");
+  const base = getEnv("WP_BASE_URL");
   if (wp) return wp;
   if (base) return new URL("/graphql", base).toString();
   return null;
-}
-
-function authHeaders() {
-  return basicAuthHeader(process.env.WP_AUTH_BASIC);
 }
 
 async function fetchGraphQL(query, variables) {
@@ -39,12 +30,9 @@ async function fetchGraphQL(query, variables) {
   const text = await res.text();
   const ct = res.headers.get("content-type") || "";
 
-  if (!res.ok) {
-    throw new Error(`GraphQL HTTP ${res.status} at ${endpoint}\n${text.slice(0, 300)}`);
-  }
-  if (!ct.includes("application/json")) {
-    throw new Error(`Expected JSON but got "${ct}" from ${endpoint}\n${text.slice(0, 300)}`);
-  }
+  if (!res.ok) throw new Error(`GraphQL HTTP ${res.status} at ${endpoint}\n${text.slice(0, 300)}`);
+  if (!ct.includes("application/json")) throw new Error(`Expected JSON but got "${ct}" from ${endpoint}\n${text.slice(0, 300)}`);
+
   return JSON.parse(text);
 }
 
@@ -66,7 +54,7 @@ export async function navQuery() {
   }`;
 
   try {
-    const json = await fetchGraphQLEndpoint() ? fetchGraphQL(q) : null;
+    const json = await fetchGraphQL(q);
     const data = json?.data || {};
     return {
       menus: data.menus ?? { nodes: [] },
@@ -76,6 +64,7 @@ export async function navQuery() {
     return { menus: { nodes: [] }, generalSettings: { title: "", url: "", description: "" } };
   }
 }
+
 
 export async function homePagePostsQuery() {
   const q = `{
