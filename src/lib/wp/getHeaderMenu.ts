@@ -27,9 +27,13 @@ export async function getHeaderMenu(): Promise<string> {
   }
 
   try {
+    console.log('[GET HEADER MENU] BEGIN FETCH');
     const res = await fetch(endpoint, { headers, cache: "no-store" });
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     const text = await res.text();
+    
+    console.log('[GET HEADER MENU] ' + text);
+    console.log('[GET HEADER MENU] ' + res.status);
 
     // Non-OK → log and fall through to GraphQL
     if (!res.ok) {
