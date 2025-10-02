@@ -76,4 +76,4 @@ export async function getHeaderMenu(): Promise<string> {
     console.error("[getHeaderMenu] GraphQL fallback failed:", e?.message || e);
     return "";
   }
-}
+} 
