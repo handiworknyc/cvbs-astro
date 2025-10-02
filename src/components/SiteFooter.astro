@@ -79,10 +79,8 @@ const sitePhone = (sitePhoneProp && String(sitePhoneProp)) || apiPhone || "";
 
 /** Map image absolute URL (use local when behind basic auth) */
 const mapImageSrc = HAS_BASIC_AUTH
-  ? mapImagePath // already local default
-  : WP_BASE_URL
-    ? `${WP_BASE_URL}${mapImagePath}`
-    : mapImagePath;
+  ? WP_BASE_URL :
+    `${WP_BASE_URL}${mapImagePath}`;
 
 /** Build tel: href from human-readable phone */
 function telHref(num: string) {
