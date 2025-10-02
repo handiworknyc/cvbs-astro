@@ -661,9 +661,6 @@ HW.globalResize = function(){
 			});					
 		}
 		
-		HW.hwRequire('youtube', function(){
-		   HW.hwYtResize(); 
-		});
 
 		if(HW.oldWidth <= 1024 && window.innerWidth >= 1024) { 
 			var $shown = document.querySelectorAll('#main-nav.show');

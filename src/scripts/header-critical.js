@@ -551,18 +551,6 @@ HW.tempVars = {};
 
 HW.toType = function(a){return{}.toString.call(a).match(/\s([a-zA-Z]+)/)[1].toLowerCase()};
 
-HW.hwRequire = function(name, func) {
-	if(loadjs.isLoaded(name)) {
-		func();
-	} else {
-		var doIt = function(){
-			func();
-		};
-		
-		loadjs.ready(name, doIt);
-	}
-}
-
 
 let passiveSupported = false;
 
