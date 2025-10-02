@@ -3,7 +3,7 @@ import { navQuery } from "@/lib/api"; // uses WORDPRESS_API_URL + WP_AUTH_BASIC
 
 export async function getHeaderMenu(): Promise<string> {
   // Prefer WORDPRESS_API_URL; fall back to WP_BASE_URL
-  const gql = (import.meta.env.WORDPRESS_API_URL || "").trim();
+  const gql = (process.env.WORDPRESS_API_URL || "").trim();
   const baseFromGql = gql ? gql.replace(/\/graphql\/?$/i, "") : "";
   const fallbackBase = (import.meta.env.WP_BASE_URL || "").trim();
   const base = baseFromGql || fallbackBase;
