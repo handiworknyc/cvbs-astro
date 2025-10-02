@@ -68,20 +68,6 @@ const pageTitle = title
       }
     </style>
 
-    <!-- Preload + lazy apply below-the-fold CSS -->
-    <link rel="preload" href={belowCssUrl} as="style" />
-    <link
-      rel="stylesheet"
-      href={belowCssUrl}
-      media="print"
-      onload="this.media='all'"
-    />
-    <link
-      rel="stylesheet"
-      href={belowCssUrl}
-      media="print"
-      onload="this.media='all'"
-    />
 
     <!-- UA helper (your original snippet) -->
     <script is:inline>
@@ -262,6 +248,9 @@ const pageTitle = title
       import "../scripts/smart-image";
       import "../scripts/gsap-global";
     </script>
+
+    <!-- Preload + lazy apply below-the-fold CSS -->
+    <link rel="preload" href={belowCssUrl} as="style" />
   </head>
 
   <body>
@@ -278,6 +267,14 @@ const pageTitle = title
     <script type="module" src={flickityUrl}></script>
     <script type="module" src={themeUrl}></script>
     <script type="module" src={flickitysUrl}></script>
+
+	<link
+      rel="stylesheet"
+      href={belowCssUrl}
+      media="print"
+      onload="this.media='all'"
+    />
+
 
 	<style
 		is:global
