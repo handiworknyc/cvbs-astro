@@ -28,15 +28,8 @@ interface Props {
 
 const {
   sitePhone: sitePhoneProp,
-  // If basic auth is on, default to local assets so they render in the browser
-  phoneIconSrc = HAS_BASIC_AUTH
-    ? "/phone.svg"
-    : WP_BASE_URL
-      ? `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg`
-      : "/phone.svg",
-  mapImagePath = HAS_BASIC_AUTH
-    ? `${WP_BASE_URL}/wp-content/2025/08/map-bg.png`
-    : "/wp-content/uploads/2025/08/map-bg.png",
+  phoneIconSrc = `${WP_BASE_URL}/wp-content/uploads/2025/09/phone.svg`,
+  mapImagePath = `${WP_BASE_URL}/wp-content/uploads/2025/08/map-bg.png`,
   quoteHref = "#quote",
 } = Astro.props as Props;
 
@@ -78,9 +71,6 @@ try {
 const sitePhone = (sitePhoneProp && String(sitePhoneProp)) || apiPhone || "";
 
 /** Map image absolute URL (use local when behind basic auth) */
-const mapImageSrc = HAS_BASIC_AUTH
-  ? WP_BASE_URL :
-    `${WP_BASE_URL}${mapImagePath}`;
 
 /** Build tel: href from human-readable phone */
 function telHref(num: string) {
@@ -202,7 +192,7 @@ function telHref(num: string) {
   decoding="async"
   loading="lazy"
   fetchpriority="low"
-  src={mapImageSrc}
+  src={mapImagePath}
   class="map-parallax"
   alt="Map background"
 />
