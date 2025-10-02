@@ -7,62 +7,79 @@ export type SubmitResponse = {
   message?: string;
   redirectUrl?: string | null;
   entryId?: number | null;
-  // for debug:
   raw?: string;
 };
 
 const TAG = "[GF]";
 
 /* ------------------------------------------------------------------ */
-/* Helpers                                                            */
+/* Env & Context helpers                                              */
 /* ------------------------------------------------------------------ */
 
 function isServer() {
-  // Astro SSR / Netlify functions
   return typeof window === "undefined";
 }
 
-/** Build the WP base from envs */
-function getWpBase(): string | null {
-  const gql = (import.meta.env.WORDPRESS_API_URL || "").trim();         // e.g. https://clbr.wpenginepowered.com/graphql
-  const fromGql = gql ? gql.replace(/\/graphql\/?$/i, "") : "";
-  const base = (import.meta.env.WP_BASE_URL || "").trim() || fromGql;   // e.g. https://clbr.wpenginepowered.com
-  return base || null;
+/** Read env safely in both server & browser.
+ * - Server: prefers process.env (runtime)
+ * - Browser: falls back to import.meta.env (build-time) — PUBLIC_* only
+ */
+function getEnv(name: string): string {
+  // import.meta only exists in ESM; guard it carefully
+  const imeEnv =
+    typeof import.meta !== "undefined" && (import.meta as any)?.env
+      ? (import.meta as any).env
+      : {};
+  const pe = typeof process !== "undefined" && (process as any)?.env ? (process as any).env : {};
+  return String(pe[name] ?? imeEnv[name] ?? "");
 }
 
-/** Basic auth header (WP Engine staging). Only used server-side. */
+// Toggle verbose logs on the server with LOG_GF=1
+const LOG_GF = (getEnv("LOG_GF") || "").trim() === "1";
+function dbg(...a: any[]) {
+  if (isServer() && LOG_GF) console.log(TAG, ...a);
+}
+
+/** WP Basic Auth header (server-only). */
 function authHeaders(): Record<string, string> {
-  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
+  const pair = (getEnv("WP_AUTH_BASIC") || "").trim(); // "user:pass"
   if (!pair) return {};
-  const token = Buffer.from(pair, "utf8").toString("base64");
+  // btoa on edge/deno, Buffer on node
+  let token = "";
+  try {
+    // @ts-ignore
+    token = (globalThis as any).btoa ? (globalThis as any).btoa(pair) : Buffer.from(pair, "utf8").toString("base64");
+  } catch {
+    // eslint-disable-next-line no-undef
+    token = Buffer.from(pair, "utf8").toString("base64");
+  }
   return { Authorization: `Basic ${token}` };
 }
 
-/** Debug logging (server-side only) */
-function dbg(...a: any[]) {
-  if (isServer()) console.log(TAG, ...a);
+/** Build the WP base from envs. Prefer WORDPRESS_API_URL (minus /graphql), else WP_BASE_URL. */
+function getWpBase(): string | null {
+  const gql = (getEnv("WORDPRESS_API_URL") || "").trim(); // e.g. https://site/graphql
+  const fromGql = gql ? gql.replace(/\/graphql\/?$/i, "") : "";
+  const base = (getEnv("WP_BASE_URL") || "").trim() || fromGql;
+  return base || null;
 }
 
-/** Some endpoints double-encode JSON strings; unwrap if needed */
+/** Unwrap double-encoded JSON strings if some endpoints return "\"<html>...\"" */
 function unwrapMaybeJSONString(raw: string): string {
   const s = raw?.trim();
   if (!s) return s;
   const looksJSONWrapped = s.startsWith('"') && s.endsWith('"') && /\\[nrt"\\/]/.test(s);
   if (!looksJSONWrapped) return s;
-  try {
-    return JSON.parse(s);
-  } catch {
-    return s;
-  }
+  try { return JSON.parse(s); } catch { return s; }
 }
 
-/** Build proxy URL for browser posts */
+/** Local proxy URL for browser posts (avoids CORS/auth in browser). */
 function buildProxyURL(baseOverride?: string): string {
-  const base = (baseOverride ?? import.meta.env.BASE_URL ?? "/").replace(/\/+$/, "/");
+  // Only the browser needs an absolute URL; server can post to a relative path.
   if (!isServer() && typeof window !== "undefined" && window.location) {
+    const base = (baseOverride ?? (import.meta.env?.BASE_URL ?? "/")).replace(/\/+$/, "/");
     return new URL(base + "api/gf/submit", window.location.origin).toString();
   }
-  // Server fallback — relative path (useful if you ever post from SSR)
   return "/api/gf/submit";
 }
 
@@ -70,11 +87,6 @@ function buildProxyURL(baseOverride?: string): string {
 /* Render (SSR)                                                       */
 /* ------------------------------------------------------------------ */
 
-/**
- * Render GF form HTML via WP REST.
- * - Returns null on failure (never throws).
- * - Server attaches Basic Auth automatically.
- */
 export async function fetchRenderedHTML(
   formId: number,
   opts?: {
@@ -84,7 +96,6 @@ export async function fetchRenderedHTML(
     tabindex?: number;
     theme?: string;
     signal?: AbortSignal;
-    /** override WP base if needed */
     base?: string;
   }
 ): Promise<string | null> {
@@ -98,7 +109,7 @@ export async function fetchRenderedHTML(
   const url = ROUTES.render(formId, {
     title: opts?.title ? 1 : 0,
     description: opts?.description ? 1 : 0,
-    ajax: opts?.ajax ?? 0, // keep GF ajax OFF for now
+    ajax: opts?.ajax ?? 0,
     tabindex: opts?.tabindex ?? 0,
     theme: opts?.theme ?? "gravity-theme",
   });
@@ -108,10 +119,9 @@ export async function fetchRenderedHTML(
       signal: opts?.signal,
       headers: {
         Accept: "text/html, application/json",
-        "User-Agent": "NetlifySSR/1.0 (+https://netlify.app)", // helps with some bot checks
-        ...(isServer() ? authHeaders() : {}), // only add Basic Auth on server
+        "User-Agent": "NetlifySSR/1.0 (+https://netlify.app)",
+        ...(isServer() ? authHeaders() : {}), // 🔐 only on server
       },
-      // credentials has no effect in server fetch; in browser, we avoid cross-origin anyway
       cache: "no-store",
     });
 
@@ -121,22 +131,18 @@ export async function fetchRenderedHTML(
     dbg("[render] GET", res.status, ct.split(";")[0], "url:", url);
 
     if (!res.ok) {
-      console.warn("[GF render] failed:", res.status, txt.slice(0, 200));
+      console.error("[GF render] failed:", res.status, txt.slice(0, 200));
       return null;
     }
 
-    // If plugin returns JSON with {html:"..."} or plain string
     if (ct.includes("application/json")) {
       try {
         const json = JSON.parse(txt);
         if (typeof json === "string") return json;
         if (json && typeof json.html === "string") return json.html;
-      } catch {
-        // fallthrough – treat txt as HTML
-      }
+      } catch { /* treat as HTML */ }
     }
 
-    // Otherwise assume HTML body
     return unwrapMaybeJSONString(txt);
   } catch (e: any) {
     console.error("[GF render] crashed:", e?.message || e);
@@ -148,11 +154,6 @@ export async function fetchRenderedHTML(
 /* Submit                                                             */
 /* ------------------------------------------------------------------ */
 
-/**
- * Submit GF via JSON.
- * - In the **browser**, default to the local proxy `/api/gf/submit` to avoid CORS/auth issues.
- * - On the **server**, can post directly to WP with Basic Auth.
- */
 export async function submitJSON(
   formId: number,
   payload: Record<string, any>,
@@ -160,7 +161,7 @@ export async function submitJSON(
 ): Promise<SubmitResponse & { raw?: string }> {
   const wpBase = (options?.base || getWpBase() || "").replace(/\/+$/, "");
   const proxyUrl = buildProxyURL();
-  const shouldUseProxy = !isServer() || !!options?.viaProxy; // browser: always proxy by default
+  const shouldUseProxy = !isServer() || !!options?.viaProxy; // browser → proxy by default
 
   const directUrl = wpBase ? `${wpBase}/wp-json/astro/v1/gf/submit` : "";
   const url = shouldUseProxy ? proxyUrl : directUrl;
@@ -173,7 +174,7 @@ export async function submitJSON(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(shouldUseProxy ? {} : authHeaders()), // only attach Basic Auth for direct WP calls
+        ...(shouldUseProxy ? {} : authHeaders()), // 🔐 attach Basic Auth only for direct server→WP
       },
       credentials: shouldUseProxy ? "same-origin" : "omit",
       body: JSON.stringify({ formId, payload }),
@@ -189,15 +190,12 @@ export async function submitJSON(
   const text = await res.text();
   dbg("[submit] HTTP", res.status, ct.split(";")[0], "first200:", text.slice(0, 200));
 
-  // HTML means we likely hit the wrong endpoint (or got challenged)
   if (/text\/html/i.test(ct) || /^\s*<!doctype/i.test(text) || /^\s*<html/i.test(text)) {
     console.error(TAG, "HTML response (wrong endpoint / auth challenge). status:", res.status, "URL:", url);
     return { ok: false, message: "Bad response (HTML page from server)", raw: text };
   }
 
-  // Try JSON (with protection for double-encoded)
   const tryParse = (t: string) => { try { return JSON.parse(t); } catch { return null; } };
-
   let data: any = tryParse(text);
   if (typeof data === "string") {
     const inner = tryParse(data);
@@ -213,8 +211,6 @@ export async function submitJSON(
     console.error(TAG, "HTTP", res.status, "URL:", url, "body:", data);
   }
 
-  // Expect the function/endpoint to return a shape compatible with SubmitResponse
-  // If not, coerce minimally:
   if (typeof data.ok !== "boolean") {
     data.ok = res.ok;
   }

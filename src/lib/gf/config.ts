@@ -3,7 +3,7 @@
 export function getEnvWPBase(): string {
   const wp =
     (import.meta as any).env?.WP_BASE_URL ||
-    (import.meta as any).env?.PUBLIC_WP_BASE_URL ||
+    process.env?.WP_BASE_URL ||
     "";
   return String(wp).replace(/\/+$/, "");
 }
