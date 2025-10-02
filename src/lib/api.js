@@ -1,25 +1,29 @@
 // src/lib/api.js
-// NOTE: This file is ESM (type: module). Runs in SSR/build on Netlify.
-
 import { fetchAPI } from "./wp.js";
 
-/* ---------------------------------------------
-   Env helpers (endpoint + Basic Auth header)
---------------------------------------------- */
+function basicAuthHeader(pair) {
+  const s = String(pair || "").trim();
+  if (!s) return {};
+  try {
+    const token =
+      typeof btoa === "function" ? btoa(s) :
+      (typeof Buffer !== "undefined" ? Buffer.from(s, "utf8").toString("base64") : "");
+    return token ? { Authorization: `Basic ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 function getGraphQLEndpoint() {
   const wp = (import.meta.env.WORDPRESS_API_URL || "").trim();
   const base = (import.meta.env.WP_BASE_URL || "").trim();
   if (wp) return wp;
   if (base) return new URL("/graphql", base).toString();
-  return null; // caller should handle null (render fallback)
+  return null;
 }
 
 function authHeaders() {
-  // On Netlify SSR, process.env is available; locally too.
-  const pair = (process.env.WP_AUTH_BASIC || "").trim(); // "user:pass"
-  if (!pair) return {};
-  const token = Buffer.from(pair, "utf8").toString("base64");
-  return { Authorization: `Basic ${token}` };
+  return basicAuthHeader(process.env.WP_AUTH_BASIC);
 }
 
 async function fetchGraphQL(query, variables) {
@@ -44,10 +48,6 @@ async function fetchGraphQL(query, variables) {
   return JSON.parse(text);
 }
 
-/* ================================
- * GraphQL-based helpers (yours)
- * ================================ */
-
 export async function navQuery() {
   const q = `{
     menus(where: {location: PRIMARY}) {
@@ -66,14 +66,13 @@ export async function navQuery() {
   }`;
 
   try {
-    const json = await fetchGraphQL(q);
+    const json = await fetchGraphQLEndpoint() ? fetchGraphQL(q) : null;
     const data = json?.data || {};
     return {
       menus: data.menus ?? { nodes: [] },
       generalSettings: data.generalSettings ?? { title: "", url: "", description: "" },
     };
   } catch {
-    // Render-safe fallback (don’t crash prerender/SSR)
     return { menus: { nodes: [] }, generalSettings: { title: "", url: "", description: "" } };
   }
 }
