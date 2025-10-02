@@ -61,12 +61,10 @@ const pageTitle = title
       is:global
       define:vars={{
         wpBaseUrl: `url('${WP_BASE_URL}')`,
-        map1Url: `url('${MAP1_URL}')`,
       }}
     >
       :root {
         --wp-base-url: var(--wpBaseUrl);
-        --map1-url: var(--map1Url);
       }
     </style>
 
@@ -280,6 +278,17 @@ const pageTitle = title
     <script type="module" src={flickityUrl}></script>
     <script type="module" src={themeUrl}></script>
     <script type="module" src={flickitysUrl}></script>
+
+	<style
+		is:global
+		define:vars={{
+        map1Url: `url('${MAP1_URL}')`,
+      }}
+    >
+      :root {
+        --map1-url: var(--map1Url);
+      }
+    </style>
 
     <!-- Feature scripts that can wait until after content -->
   </body>
