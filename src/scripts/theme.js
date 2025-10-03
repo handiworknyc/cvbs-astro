@@ -322,19 +322,14 @@ function parseSTBounds(el, defStart, defEnd) {
 
 	return { start, end };
 }
-async function executeMarqueeLogic(me) {
+
+function executeMarqueeLogic(me) {
 	const myid = me.id || (me.id = 'mq-' + Math.random().toString(36).slice(2, 11));
 	const items = me.querySelectorAll('.mq-item');
 	const itemCount = items.length;
 	if (!itemCount) return;
 
-	const outerPar = me.closest('.mq-outer') || me.parentElement;
 
-	// ⏳ ensure images are ready before measuring
-	await waitForImages(me);
-
-	console.log(me);
-	console.log('1231312asdassd');
 	let mydur = parseFloat(me.getAttribute('data-dur') || '45.25');
 
 	// clear any previous inline styles via GSAP
@@ -345,15 +340,12 @@ async function executeMarqueeLogic(me) {
 	const { widths, heights, totalX, tallest } = measureItems(me, items);
 
 	// ---- early exit: not enough width to marquee ----
+	const outerPar = me.closest('.mq-outer') || me.parentElement;
 	const containerWidth = outerPar ? outerPar.clientWidth : window.innerWidth;
 	if (totalX <= (containerWidth - 100) && !me.classList.contains('always-mq')) {
 		me.classList.remove('has-slider');
 		me.classList.add('no-slider');
 		outerPar && outerPar.classList.add('no-slider');
-
-		// ✅ ensure height is set even in early-exit path
-		setOuterHeightFromContent(me, outerPar);
-
 		// clean any previous timeline/trigger
 		if (HW.mqTls[myid]) { HW.mqTls[myid].kill(); delete HW.mqTls[myid]; }
 		if (HW.mqSts[myid]) { HW.mqSts[myid].kill(); delete HW.mqSts[myid]; }
@@ -364,9 +356,11 @@ async function executeMarqueeLogic(me) {
 	// item placement
 	writeItemLayout(me, items, widths, tallest);
 
-	// ✅ set outer height now and again next frame (fonts/padding settle)
-	setOuterHeightFromContent(me, outerPar);
-	requestAnimationFrame(() => setOuterHeightFromContent(me, outerPar));
+	// outer height (use computed paddings once)
+	const cs = getComputedStyle(me);
+	const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+	const totalH = tallest + pad;
+	outerPar && gsap.set(outerPar, { height: totalH > 0 ? totalH : 'auto' });
 
 	// ensure classes
 	me.classList.remove('no-slider');
@@ -414,6 +408,9 @@ function passesBreakpoint(me, ww) {
 	return false;
 }
 
+
+
+
 // Wait for all <img> inside `root` to be ready (decode if possible)
 async function waitForImages(root, { timeout = 8000 } = {}) {
   const imgs = Array.from(root.querySelectorAll('img'));
@@ -442,6 +439,10 @@ async function waitForImages(root, { timeout = 8000 } = {}) {
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 }
 
+
+
+
+
 // Set outer container height safely (handles padding)
 function setOuterHeightFromContent(contentEl, outerEl) {
   const cs = getComputedStyle(contentEl);
@@ -451,8 +452,9 @@ function setOuterHeightFromContent(contentEl, outerEl) {
   if (outerEl) gsap.set(outerEl, { height: totalH > 0 ? totalH : 'auto' });
 }
 
+
 HW.mqInit = function() {
-	const doIt = async function() {
+	const doIt = function() {
 		// Kill previous timelines & triggers in O(n)
 		killAllTimelines();
 
@@ -473,26 +475,23 @@ HW.mqInit = function() {
 			HW.hwIntchInit && HW.hwIntchInit();
 		}
 
-		// Process marquees sequentially (await inside loop to avoid layout thrash/races)
-		for (const me of $mqs) {
+		// Loop marquees once, minimal reads/writes inside execute
+		$mqs.forEach(me => {
 			const outerPar = me.closest('.mq-outer') || me.parentElement;
 
 			if (passesBreakpoint(me, ww)) {
 				me.classList.remove('no-slider');
 				outerPar && outerPar.classList.remove('no-slider');
-				await executeMarqueeLogic(me); // ⬅️ await image-ready + layout + ST/TL
+				executeMarqueeLogic(me);
 			} else {
 				me.classList.add('no-slider');
 				outerPar && outerPar.classList.add('no-slider');
 				gsap.set(me, { clearProps: true });
 				gsap.set(me.querySelectorAll('.mq-item'), { clearProps: true });
-
-				// still ensure a sensible height for layout stability
-				setOuterHeightFromContent(me, outerPar);
 			}
 
 			me.classList.remove('first-load');
-		}
+		});
 	};
 
 	// tiny debounce to allow layout settle (fonts/images)
@@ -509,7 +508,8 @@ HW.mqInit();
 
 
 
- 
+
+
 
 
 

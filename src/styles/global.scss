@@ -2483,19 +2483,23 @@ html {
 
 
 
+.service-area-banner-logos .mq-wrap {
+  position: absolute;
+}
 
-
-
+.service-area-banner,
 .service_area_banner-module {
   overflow: hidden;
   z-index: 999;
+  position: relative;
+  max-width: 100vw;
 }
 
 .tax-service-banner {
   position: relative;
   overflow: hidden;
 
-  &:before {
+  &:before {  
     box-shadow: inset 70px 0 70px rgba(0, 0, 0, 0.2);
     -webkit-box-shadow: inset 70px 0 70px rgba(0, 0, 0, 0.2);
     -moz-box-shadow: inset 70px 0 70px rgba(0, 0, 0, 0.2);
