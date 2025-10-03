@@ -3,7 +3,7 @@
 // NOTE: Run server-side only (frontmatter/SSR). Cheerio won't work in the browser.
 
 import * as cheerio from "cheerio";
-import { getEnv, toBase64 } from "./env.ts"; // same helpers used by api.js
+import { getEnv, toBase64 } from "../env.ts"; // <-- path fixed
 
 export type PullFrom = {
   objectType: "post" | "term";
