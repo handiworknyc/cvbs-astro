@@ -1,5 +1,6 @@
 ---
 import { normalizeLayouts, type NormRow } from "./normalize";
+import { getEnv, toBase64 } from "../env.ts"; // path is one dir up
 
 // Props coming *into* this renderer
 interface Props {
@@ -13,26 +14,54 @@ const {
   taxContext = null,
 } = Astro.props as Props;
 
-// ✅ Use the same env key everywhere (public env vars in Astro must start with PUBLIC_)
-const WP_BASE = import.meta.env.WP_BASE_URL; 
+// Env (server-side is fine for non-PUBLIC_ here)
+const WP_BASE = import.meta.env.WP_BASE_URL || "";
+const WP_AUTH_BASIC = getEnv("WP_AUTH_BASIC") || ""; // "user:pass"
 const slug = Astro.params?.slug as string | undefined;
 
-// 🔒 Fetch current post (guarded)
+// Build auth headers once
+const authHeaders = WP_AUTH_BASIC
+  ? { Authorization: `Basic ${toBase64(WP_AUTH_BASIC)}` }
+  : {};
+
+// Debug state for fetch of current post
 let currentPost: any = null;
+let fetchStatus: number | null = null;
+let fetchUrl = "";
+let fetchPeek = "";
+let fetchError: string | null = null;
+
 if (WP_BASE && slug) {
   try {
-    const res = await fetch(`${WP_BASE}/wp-json/wp/v2/pages?slug=${encodeURIComponent(slug)}`);
-    if (res.ok) {
+    fetchUrl = `${WP_BASE}/wp-json/wp/v2/pages?slug=${encodeURIComponent(slug)}`;
+    const res = await fetch(fetchUrl, { headers: { Accept: "application/json", ...authHeaders } });
+    fetchStatus = res.status;
+
+    if (!res.ok) {
+      fetchPeek = (await res.text().catch(() => ""))?.slice(0, 300) || "";
+      console.error("[layoutrenderer] HTTP", fetchStatus, fetchUrl, fetchPeek);
+    } else {
       const posts = await res.json();
       currentPost = posts?.[0] ?? null;
+      console.log("[layoutrenderer] fetched", {
+        slug,
+        url: fetchUrl,
+        status: fetchStatus,
+        foundId: currentPost?.id ?? null,
+      });
     }
-  } catch {}
+  } catch (e: any) {
+    fetchError = e?.message || String(e);
+    console.error("[layoutrenderer] fetch error", fetchError, { url: fetchUrl });
+  }
+} else {
+  if (!WP_BASE) console.error("[layoutrenderer] Missing WP_BASE_URL");
+  if (!slug) console.warn("[layoutrenderer] No slug param present");
 }
 
 const postId = currentPost?.id ?? null;
 
-// ❌ You were re-declaring `layouts` and overwriting the prop.
-// If you want to prefer WP layouts when present, do this instead:
+// Prefer WP layouts when present
 const fetchedLayouts = currentPost?.acf?.layouts ?? null;
 const effectiveLayouts = Array.isArray(fetchedLayouts) && fetchedLayouts.length > 0
   ? fetchedLayouts
@@ -99,10 +128,23 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
 }
 ---
 
-
 {rows.length === 0 && (
   <div class="prose mx-auto my-12 text-center opacity-70">
     <p>No content yet.</p>
+  </div>
+)}
+
+{/* Visible debug panel if the REST fetch failed or returned no post */}
+{(slug && (!postId || (fetchStatus && fetchStatus >= 400) || fetchError)) && (
+  <div style="margin:1rem auto; max-width:64rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
+    <div><strong>WP_BASE_URL:</strong> {WP_BASE || "(not set)"} </div>
+    <div><strong>slug:</strong> {slug}</div>
+    <div><strong>request:</strong> {fetchUrl}</div>
+    <div><strong>status:</strong> {String(fetchStatus ?? "")}</div>
+    <div><strong>error:</strong> {String(fetchError ?? "")}</div>
+    <div><strong>peek:</strong> {fetchPeek}</div>
+    <div><strong>postId:</strong> {String(postId)}</div>
+    <div><strong>auth:</strong> {WP_AUTH_BASIC ? "(Basic auth supplied)" : "(no auth)"} </div>
   </div>
 )}
 
@@ -129,7 +171,7 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
         <div class={bgWrapClass}>
           <div class={innerWrapClasses}>
             {Comp ? (
-              /* ✅ Pass postId, currentPost, rowIndex into every sub-layout */
+              /* Pass postId, currentPost, rowIndex into every sub-layout */
               <Comp {...row.data} postId={postId} currentPost={currentPost} rowIndex={rowindex} />
             ) : (
               <div class="mx-auto my-8 max-w-5xl rounded-xl border p-4">
