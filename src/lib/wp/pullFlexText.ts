@@ -1,7 +1,9 @@
 // src/lib/wpPull.ts
 // Reusable helpers to pull ACF flex text (or any field) from WP via /wp-json/cv/v1/acf-flex-text
+// NOTE: Run server-side only (frontmatter/SSR). Cheerio won't work in the browser.
 
 import * as cheerio from "cheerio";
+import { getEnv, toBase64 } from "./env.ts"; // same helpers used by api.js
 
 export type PullFrom = {
   objectType: "post" | "term";
@@ -18,6 +20,14 @@ export type FetchFlexResp = {
 };
 
 const WP_BASE = import.meta.env.WP_BASE_URL || "";
+
+/* ---------- Auth (matches api.js behavior) ---------- */
+function authHeaders(): Record<string, string> {
+  const pair = getEnv("WP_AUTH_BASIC"); // "user:pass"
+  if (!pair) return {};
+  const token = toBase64(pair);
+  return token ? { Authorization: `Basic ${token}` } : {};
+}
 
 /** Map known class names from WP output to your utilities. */
 function mapKnownClassNames(token: string): string {
@@ -160,8 +170,19 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
   const url = `${WP_BASE}/wp-json/cv/v1/acf-flex-text?${qs.toString()}`;
 
   try {
-    const res = await fetch(url);
-    if (!res.ok) return { html: "" };
+    const res = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        ...authHeaders(),
+      },
+    });
+
+    if (!res.ok) {
+      // Helpful peek during debugging; safe to remove later
+      const peek = await res.text().catch(() => "");
+      console.error("[wpPull] HTTP", res.status, url, peek.slice(0, 200));
+      return { html: "" };
+    }
 
     const data = await res.json();
 
@@ -191,7 +212,8 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
     html = fixImagesInHtml(html);
 
     return { html, raw: data };
-  } catch {
+  } catch (err) {
+    console.error("[wpPull] fetch error", err);
     return { html: "" };
   }
 }
