@@ -68,7 +68,6 @@ function normalizeBannerImgs($: cheerio.CheerioAPI, $scope: cheerio.Cheerio) {
     if (dataSrcset) $img.attr("srcset", dataSrcset);
 
     // add desired attrs
-    $img.attr("loading", "lazy");
     $img.attr("fetchpriority", "high");
     $img.attr("async", "");
 
