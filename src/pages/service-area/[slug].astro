@@ -1,0 +1,53 @@
+---
+// src/pages/service-area/[slug].astro
+import BaseLayout from "../../layouts/MainLayout.astro";
+import LayoutRenderer from "../../lib/wp/LayoutRenderer.astro";
+
+import {
+  getAllServiceAreaTermPaths,
+  getFlexibleServiceAreaTermBySlug
+} from "../../lib/api";
+
+/* ---------------------------------------------
+ * Static paths for service-area taxonomy
+ * ------------------------------------------- */
+export async function getStaticPaths() {
+  return getAllServiceAreaTermPaths();
+}
+
+/* ---------------------------------------------
+ * Params & term (from your synced JSON)
+ * ------------------------------------------- */
+const { slug } = Astro.params as { slug: string };
+const term = getFlexibleServiceAreaTermBySlug(slug);
+
+if (!term) {
+  Astro.response.status = 404;
+  Astro.response.statusText = "Service-area term not found";
+}
+
+/* ---------------------------------------------
+ * Basics
+ * ------------------------------------------- */
+const taxonomy = "service-area";
+const pageTitle = term?.title || term?.name || slug;
+const termId =
+  Number(term?.id ?? term?.term_id ?? term?.databaseId ?? term?.ID) || null;
+---
+
+<BaseLayout title={pageTitle}>
+  {/* No taxonomy banner on service-area pages — just flexible content layouts */}
+  {Array.isArray(term?.layouts) && term.layouts.length > 0 ? (
+    <LayoutRenderer layouts={term.layouts} taxContext={taxonomy} />
+  ) : null}
+
+  {/* Optional: quick debug (commented) */}
+  {/*
+  <div style="margin:1rem auto; max-width:64rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
+    <div><strong>taxonomy:</strong> {taxonomy}</div>
+    <div><strong>slug:</strong> {slug}</div>
+    <div><strong>termId:</strong> {String(termId)}</div>
+    <div><strong>layouts:</strong> {Array.isArray(term?.layouts) ? term.layouts.length : 0}</div>
+  </div>
+  */}
+</BaseLayout>
