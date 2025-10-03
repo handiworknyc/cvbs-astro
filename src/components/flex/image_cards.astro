@@ -37,6 +37,7 @@ const {
 let pulledHtml = "";
 let pullDebug: any = null;
 
+console.log(Astro.props);
 let effectivePull: PullFrom | null = null;
 if (termId && taxonomy) {
   effectivePull = {

@@ -1,54 +1,59 @@
 ---
-import { normalizeLayouts, type NormRow } from "./normalize";
-import { getEnv, toBase64 } from "../env.ts"; // path is one dir up
+/**
+ * src/lib/wp/LayoutRenderer.astro
+ * - Resolves content from WP for pages (by route slug or explicit override)
+ *   and for taxonomy terms (when taxContext + route slug are provided).
+ * - Falls back cleanly when layouts are passed directly as props.
+ */
 
-// Props coming *into* this renderer
+import { normalizeLayouts, type NormRow } from "./normalize";
+import { getEnv, toBase64 } from "../env.ts";
+
+/* ---------------- Props ---------------- */
 interface Props {
   layouts?: any[];
-  /** Optional: "service" | "service-area" to mirror hw_get_current_taxonomy_context() */
+  /** Optional taxonomy context, e.g. "service" | "service-area" */
   taxContext?: string | null;
+
+  /** NEW: allow resolving a page when there's no route slug (e.g., homepage) */
+  pageId?: number | null;
+  pageSlug?: string | null;
 }
 
-const {
+let {
   layouts = [],
   taxContext = null,
+  pageId = null,
+  pageSlug = null,
 } = Astro.props as Props;
 
-// Env (server-side is fine for non-PUBLIC_ here)
+/* ---------------- Env ---------------- */
 const WP_BASE = import.meta.env.WP_BASE_URL || "";
 const WP_AUTH_BASIC = getEnv("WP_AUTH_BASIC") || ""; // "user:pass"
-const slug = Astro.params?.slug as string | undefined;
+const ROUTE_SLUG = Astro.params?.slug as string | undefined;
 
-// Build auth headers once
 const authHeaders = WP_AUTH_BASIC
   ? { Authorization: `Basic ${toBase64(WP_AUTH_BASIC)}` }
   : {};
 
-// -----------------------------
-// Debug + fetch state (page)
-// -----------------------------
+/* ---------------- Debug state (page) ---------------- */
 let currentPost: any = null;
 let fetchStatus: number | null = null;
 let fetchUrl = "";
 let fetchPeek = "";
 let fetchError: string | null = null;
 
-// -----------------------------
-// Debug + fetch state (term)
-// -----------------------------
+/* ---------------- Debug state (term) ---------------- */
 let currentTerm: any = null;
 let termFetchStatus: number | null = null;
 let termFetchUrl = "";
 let termFetchPeek = "";
 let termFetchError: string | null = null;
 
-if (!WP_BASE) {
-  console.error("[layoutrenderer] Missing WP_BASE_URL");
-}
-if (!slug) {
-  console.warn("[layoutrenderer] No slug param present");
-}
+/** Fallback set of taxonomies to probe if a route slug isn’t a page */
+const TAX_CANDIDATES = ["service", "service-area", "category", "post_tag"];
 
+/* ---------------- Helpers ---------------- */
 async function fetchJson(url: string) {
   const res = await fetch(url, { headers: { Accept: "application/json", ...authHeaders } });
   const status = res.status;
@@ -60,44 +65,78 @@ async function fetchJson(url: string) {
   return { ok: true, status, peek: "", json };
 }
 
-// If we have a taxonomy context, resolve the *term* by slug.
-// Otherwise, resolve the *page* by slug (original behavior).
-if (WP_BASE && slug) {
-  if (taxContext) {
-    // --- Taxonomy mode: fetch term directly using provided taxContext ---
+/** NEW: Resolve a page without a route slug (e.g., homepage). */
+async function resolvePageByOverride(): Promise<void> {
+  // 1) Explicit pageId wins
+  if (pageId) {
+    const url = `${WP_BASE}/wp-json/wp/v2/pages/${pageId}`;
+    const r = await fetchJson(url);
+    fetchUrl = url; fetchStatus = r.status;
+    if (r.ok) {
+      currentPost = r.json;
+      console.log("[layoutrenderer] page (by id) ok", { pageId, url });
+      return;
+    }
+    fetchPeek = r.peek;
+    console.warn("[layoutrenderer] page (by id) miss", { pageId, url, status: r.status, peek: r.peek });
+  }
+
+  // 2) Then pageSlug, or PUBLIC_HOME_SLUG env, or "home"
+  const effSlug = pageSlug || import.meta.env.PUBLIC_HOME_SLUG || "home";
+  if (effSlug) {
+    const url = `${WP_BASE}/wp-json/wp/v2/pages?slug=${encodeURIComponent(effSlug)}`;
+    const r = await fetchJson(url);
+    fetchUrl = url; fetchStatus = r.status;
+    if (r.ok) {
+      const arr = Array.isArray(r.json) ? r.json : [];
+      currentPost = arr?.[0] ?? null;
+      console.log("[layoutrenderer] page (by slug) result", { effSlug, url, foundId: currentPost?.id ?? null });
+    } else {
+      fetchPeek = r.peek;
+      console.warn("[layoutrenderer] page (by slug) miss", { effSlug, url, status: r.status, peek: r.peek });
+    }
+  }
+}
+
+/* ---------------- Main fetch logic ---------------- */
+if (!WP_BASE) {
+  console.error("[layoutrenderer] Missing WP_BASE_URL");
+} else {
+  if (taxContext && ROUTE_SLUG) {
+    // -------- TERM MODE (explicit taxonomy + route slug) --------
     try {
-      termFetchUrl = `${WP_BASE}/wp-json/wp/v2/${encodeURIComponent(taxContext)}?slug=${encodeURIComponent(slug)}`;
+      termFetchUrl = `${WP_BASE}/wp-json/wp/v2/${encodeURIComponent(taxContext)}?slug=${encodeURIComponent(ROUTE_SLUG)}`;
       const r = await fetchJson(termFetchUrl);
       termFetchStatus = r.status;
-      if (!r.ok) {
-        termFetchPeek = r.peek;
-        console.error("[layoutrenderer] TERM HTTP", termFetchStatus, termFetchUrl, termFetchPeek);
-      } else {
+      if (r.ok) {
         const terms = Array.isArray(r.json) ? r.json : [];
         currentTerm = terms?.[0] ?? null;
         console.log("[layoutrenderer] fetched TERM", {
           taxContext,
-          slug,
+          slug: ROUTE_SLUG,
           url: termFetchUrl,
           status: termFetchStatus,
           foundId: currentTerm?.id ?? null,
         });
+      } else {
+        termFetchPeek = r.peek;
+        console.error("[layoutrenderer] TERM HTTP", termFetchStatus, termFetchUrl, termFetchPeek);
       }
     } catch (e: any) {
       termFetchError = e?.message || String(e);
       console.error("[layoutrenderer] TERM fetch error", termFetchError, { url: termFetchUrl });
     }
-  } else {
-    // --- No taxContext: try page first ---
+  } else if (ROUTE_SLUG) {
+    // -------- PAGE MODE (route slug) --------
     try {
-      fetchUrl = `${WP_BASE}/wp-json/wp/v2/pages?slug=${encodeURIComponent(slug)}`;
+      fetchUrl = `${WP_BASE}/wp-json/wp/v2/pages?slug=${encodeURIComponent(ROUTE_SLUG)}`;
       const r = await fetchJson(fetchUrl);
       fetchStatus = r.status;
       if (r.ok) {
         const posts = Array.isArray(r.json) ? r.json : [];
         currentPost = posts?.[0] ?? null;
         console.log("[layoutrenderer] fetched PAGE", {
-          slug,
+          slug: ROUTE_SLUG,
           url: fetchUrl,
           status: fetchStatus,
           foundId: currentPost?.id ?? null,
@@ -111,13 +150,12 @@ if (WP_BASE && slug) {
       console.error("[layoutrenderer] PAGE fetch error", fetchError, { url: fetchUrl });
     }
 
-    // --- If not a page (or page has no match), probe known taxonomies for a term with this slug ---
+    // If not a page (or page missing), probe known taxonomies for a term with this slug
     if (!currentPost) {
       for (const candTax of TAX_CANDIDATES) {
         try {
-          const url = `${WP_BASE}/wp-json/wp/v2/${encodeURIComponent(candTax)}?slug=${encodeURIComponent(slug)}`;
+          const url = `${WP_BASE}/wp-json/wp/v2/${encodeURIComponent(candTax)}?slug=${encodeURIComponent(ROUTE_SLUG)}`;
           const r = await fetchJson(url);
-          // keep debug of each probe
           console.log("[layoutrenderer] probe TERM", { candTax, status: r.status, url });
 
           if (r.ok) {
@@ -126,18 +164,13 @@ if (WP_BASE && slug) {
               currentTerm = arr[0];
               termFetchUrl = url;
               termFetchStatus = r.status;
-              // set taxContext dynamically so children receive taxonomy
-              // (WP returns taxonomy in the term object for core and custom taxonomies)
-              // if not present, fall back to candidate
-              // @ts-ignore
-              taxContext = typeof currentTerm?.taxonomy === "string" ? currentTerm.taxonomy : candTax;
-
+              // we keep incoming `taxContext` unchanged; child modules can read taxonomy off currentTerm
               console.log("[layoutrenderer] detected TERM", {
-                slug,
-                taxonomy: taxContext,
+                slug: ROUTE_SLUG,
+                taxonomy: currentTerm?.taxonomy || candTax,
                 foundId: currentTerm.id,
               });
-              break; // stop at first match
+              break;
             }
           }
         } catch (e: any) {
@@ -145,28 +178,26 @@ if (WP_BASE && slug) {
         }
       }
     }
+  } else {
+    // -------- HOMEPAGE / ROUTE WITHOUT SLUG --------
+    await resolvePageByOverride();
   }
 }
 
-
+/* ---------------- Derived IDs ---------------- */
 const postId = currentPost?.id ?? null;
 const termId = currentTerm?.id ?? null;
 
-// Prefer WP layouts when present (page ACF) — taxonomy pages may not have these.
+/* ---------------- Choose layouts ---------------- */
 const fetchedLayouts = currentPost?.acf?.layouts ?? null;
 const effectiveLayouts = Array.isArray(fetchedLayouts) && fetchedLayouts.length > 0
   ? fetchedLayouts
   : layouts;
 
-// Normalize to { name, key, data, meta }
 const rows: NormRow[] = normalizeLayouts(effectiveLayouts);
 
-/**
- * Auto-register all components in ./components/flex
- */
+/* ---------------- Auto-register flex modules ---------------- */
 const modules = import.meta.glob("/src/components/flex/*.astro", { eager: true });
-
-// Build registry: { "hero_text": <Component>, ... }
 const REGISTRY: Record<string, any> = {};
 for (const [p, mod] of Object.entries(modules)) {
   const file = p.split("/").pop() || "";
@@ -175,7 +206,7 @@ for (const [p, mod] of Object.entries(modules)) {
   REGISTRY[key] = (mod as any).default;
 }
 
-// Helpers to resolve a component from a layout name
+/* ---------------- Resolve component name variants ---------------- */
 function toKebab(s: string) {
   return s.replace(/[_\s]+/g, "-").replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 }
@@ -193,12 +224,12 @@ function resolveComponent(layoutName: string) {
   return null;
 }
 
-// Background logic
+/* ---------------- Background helpers ---------------- */
 const firstLayout = rows[0]?.name ?? "";
 
 function isAltBgContext(): boolean {
-  const taxOk = taxContext === "service" || taxContext === "service-area";
-  return taxOk || firstLayout === "service_area_banner";
+  // Respect incoming taxContext if provided; otherwise infer from first layout
+  return (taxContext === "service" || taxContext === "service-area") || firstLayout === "service_area_banner";
 }
 
 function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
@@ -217,6 +248,15 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
   }
   return null;
 }
+
+/* ---------------- Common context for child modules ---------------- */
+const commonCtxBase = {
+  postId,
+  currentPost,
+  termId,
+  taxonomy: (taxContext || (typeof currentTerm?.taxonomy === "string" ? currentTerm.taxonomy : null)) as string | null,
+  currentTerm,
+};
 ---
 
 {rows.length === 0 && (
@@ -224,42 +264,6 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
     <p>No content yet.</p>
   </div>
 )}
-<!-- 
-{/* Visible debug panel:
-    - If page mode and page fetch failed
-    - If taxonomy mode and term fetch failed
-*/}
-{(slug && (
-  (!taxContext && (!postId || (fetchStatus && fetchStatus >= 400) || fetchError)) ||
-  (taxContext && (!termId || (termFetchStatus && termFetchStatus >= 400) || termFetchError))
-)) && (
-  <div style="margin:1rem auto; max-width:64rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
-    <div><strong>WP_BASE_URL:</strong> {WP_BASE || "(not set)"} </div>
-    <div><strong>slug:</strong> {slug}</div>
-    <div><strong>mode:</strong> {taxContext ? `taxonomy:${taxContext}` : "page"} </div>
-
-    {!taxContext ? (
-      <>
-        <div><strong>request (page):</strong> {fetchUrl}</div>
-        <div><strong>status:</strong> {String(fetchStatus ?? "")}</div>
-        <div><strong>error:</strong> {String(fetchError ?? "")}</div>
-        <div><strong>peek:</strong> {fetchPeek}</div>
-        <div><strong>postId:</strong> {String(postId)}</div>
-      </>
-    ) : (
-      <>
-        <div><strong>request (term):</strong> {termFetchUrl}</div>
-        <div><strong>status:</strong> {String(termFetchStatus ?? "")}</div>
-        <div><strong>error:</strong> {String(termFetchError ?? "")}</div>
-        <div><strong>peek:</strong> {termFetchPeek}</div>
-        <div><strong>termId:</strong> {String(termId)}</div>
-        <div><strong>taxonomy:</strong> {taxContext}</div>
-      </>
-    )}
-
-    <div><strong>auth:</strong> {WP_AUTH_BASIC ? "(Basic auth supplied)" : "(no auth)"} </div>
-  </div>
-)} -->
 
 {rows.map((row, idx) => {
   const Comp = resolveComponent(row.name);
@@ -276,30 +280,7 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
     ...(row.meta?.ofh ? ["ofh"] : []),
   ].join(" ");
 
-  // Pass *both* page and taxonomy context into every sub-layout.
-  // Components that support pull-through can decide which to use:
-  //  - For pages:    use postId/currentPost
-  //  - For taxonomy: use termId + taxonomy (taxContext)
-const termId = currentTerm?.id ?? null;
-const postId = currentPost?.id ?? null;
-
-const commonCtx = {
-  postId,
-  currentPost,
-  termId,
-  taxonomy: (taxContext || (typeof currentTerm?.taxonomy === "string" ? currentTerm.taxonomy : null)) as string | null,
-  currentTerm,
-  rowIndex: rowindex,
-};
-
-console.log("[layoutrenderer] term context", {
-  taxContext,
-  slug,
-  resolvedTermId: termId,
-  termFetchUrl,
-  termFetchStatus,
-  currentTermTaxonomy: currentTerm?.taxonomy,
-});
+  const commonCtx = { ...commonCtxBase, rowIndex: rowindex };
 
   return (
     <section {...idAttr} class={sectionClass}>

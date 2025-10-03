@@ -1,19 +1,14 @@
 ---
 /**
  * src/components/blog.astro
- * Fetch latest posts, optionally filtered by a custom taxonomy term.
- * Accepts taxonomy context in TWO ways:
- *   A) OLD: taxonomy=[{ taxonomy, term_id, slug, name }]
- *   B) NEW: taxonomy="service" + termId + currentTerm (and/or termSlug)
- *
- * Order when taxonomy is provided:
- *   1) GraphQL taxQuery by SLUG (if slug present & taxonomy registered in WPGraphQL)
- *   2) REST fallbacks (posts endpoint) tried in order:
- *        ?{tax}={term_id}
- *        ?{tax}[]={term_id}
- *        ?{tax}={slug}
- *        ?{tax}[]={slug}
- * If no taxonomy → plain latest posts via GraphQL.
+ * - Fetch latest posts, optionally filtered by a custom taxonomy term.
+ * - Taxonomy context accepted in two ways:
+ *     A) OLD: taxonomy=[{ taxonomy, term_id, slug, name }]
+ *     B) NEW: taxonomy="service" + termId + currentTerm (and/or termSlug)
+ * - Order when taxonomy is provided:
+ *     1) WPGraphQL taxQuery by SLUG (if available)
+ *     2) REST fallbacks (?{tax}={id}, ?{tax}[]={id}, ?{tax}={slug}, ?{tax}[]={slug})
+ * - NEW: In plain mode (homepage), if GraphQL fails/empty → REST fallback to latest posts.
  */
 
 import BlogPrevItem from "@/components/BlogPrevItem.astro";
@@ -21,7 +16,6 @@ import { fetchAPI } from "@/lib/wp";
 import { getEnv, toBase64 } from "@/lib/env.ts";
 
 const WP_BASE = import.meta.env.WP_BASE_URL || "";
-
 const WP_AUTH_BASIC = getEnv("WP_AUTH_BASIC") || ""; // "user:pass"
 const authHeaders = WP_AUTH_BASIC
   ? { Authorization: `Basic ${toBase64(WP_AUTH_BASIC)}` }
@@ -54,10 +48,10 @@ interface Props {
 }
 
 const {
-  taxonomy = null,     // can be array OR string OR null
-  termId = null,       // NEW
-  currentTerm = null,  // NEW
-  termSlug = null,     // optional override
+  taxonomy = null,
+  termId = null,
+  currentTerm = null,
+  termSlug = null,
 
   idPrefix = "blog-prev-wrap",
   perPage = 6,
@@ -92,7 +86,7 @@ if (Array.isArray(taxonomy) && taxonomy.length > 0) {
 }
 
 const hasTax = !!(tx && tx.taxonomy && (tx.term_id || tx.slug));
-const taxKey  = tx?.taxonomy ?? "";                    // e.g. "service" (REST base)
+const taxKey  = tx?.taxonomy ?? ""; // e.g. "service"
 const taxName = tx?.name ?? "";
 const taxSlugNorm = (tx?.slug ?? "").toString();
 const taxIdNorm   = toNumOrNull(tx?.term_id) ?? null;
@@ -190,13 +184,7 @@ function fromRestPost(p: any): PostLike {
   };
 }
 
-// ---------- Fetch logic ----------
-let latestPosts: PostLike[] = [];
-
-let mode: "taxonomy" | "plain" = hasTax ? "taxonomy" : "plain";
-let pathUsed: "gql:plain" | "gql:tax" | "rest:id" | "rest:id[]" | "rest:slug" | "rest:slug[]" | "none" = "none";
-let gqlError: string | null = null;
-
+// Small helper to try REST and record attempt
 type RestTry = { label: string; url: string; status?: number | null; ok?: boolean | null; peek?: string };
 const restTries: RestTry[] = [];
 
@@ -221,6 +209,22 @@ async function restAttempt(url: string, label: RestTry["label"]): Promise<PostLi
     return null;
   }
 }
+
+// ---------- Fetch logic ----------
+let latestPosts: PostLike[] = [];
+
+let mode: "taxonomy" | "plain" = hasTax ? "taxonomy" : "plain";
+let pathUsed:
+  | "gql:plain"
+  | "gql:tax"
+  | "rest:id"
+  | "rest:id[]"
+  | "rest:slug"
+  | "rest:slug[]"
+  | "rest:plain"
+  | "none" = "none";
+
+let gqlError: string | null = null;
 
 try {
   if (mode === "taxonomy") {
@@ -285,11 +289,30 @@ try {
       }
     }
   } else {
-    // Plain latest via GraphQL
-    const data = await fetchAPI(GQL_LATEST, { first: perPage });
-    const nodes = data?.posts?.nodes ?? [];
-    latestPosts = nodes.map(toPostLike);
-    pathUsed = "gql:plain";
+    // -------- PLAIN MODE (homepage) --------
+    let gqlOk = false;
+    try {
+      const data = await fetchAPI(GQL_LATEST, { first: perPage });
+      const nodes = data?.posts?.nodes ?? [];
+      latestPosts = nodes.map(toPostLike);
+      if (latestPosts.length > 0) {
+        pathUsed = "gql:plain";
+        gqlOk = true;
+      }
+    } catch (err: any) {
+      gqlError = err?.message || String(err);
+      gqlOk = false;
+    }
+
+    // REST fallback for homepage if GraphQL failed or returned 0
+    if (!gqlOk && WP_BASE) {
+      const u = `${WP_BASE}/wp-json/wp/v2/posts?per_page=${perPage}&_embed`;
+      const r = await restAttempt(u, "rest:plain");
+      if (Array.isArray(r)) {
+        latestPosts = r;
+        pathUsed = "rest:plain";
+      }
+    }
   }
 } catch (e: any) {
   console.error("[blog.astro] fetch failed:", e?.message || e);
@@ -329,6 +352,7 @@ const countClass = `count-${count}`;
       )}
     </>
   )}
+  {mode === "plain" && gqlError && <div><strong>gqlError:</strong> {gqlError}</div>}
   <div><strong>Auth:</strong> {WP_AUTH_BASIC ? "(Basic auth supplied)" : "(no auth)"} </div>
   <div><strong>count:</strong> {String(count)}</div>
 </div> -->
@@ -358,11 +382,11 @@ const countClass = `count-${count}`;
       </>
     )}
     <div class="pr ofh blog-prev-ofh">
-        <div class="flex-wrap blog-prev-wrap mt-[7rem] hw-slides" id={uniq} data-hw-flickity='{"cellAlign":"center"}'>
+      <div class="flex-wrap blog-prev-wrap mt-[7rem] hw-slides" id={uniq} data-hw-flickity='{"cellAlign":"center"}'>
         {latestPosts.map((p) => (
-            <BlogPrevItem post={p} img_size="intch_med" />
+          <BlogPrevItem post={p} img_size="intch_med" />
         ))}
-        </div>
+      </div>
     </div>
   </div>
 )}
