@@ -1,8 +1,31 @@
 ---
-// src/components/flex/logo_slider.astro
-// Renders a logo slider. Supports:
-// 1) Pull-through mode via `pull_from_html` (+ optional `pull_from_id`)
-// 2) Local build mode via `logos` (and now auto-resolves image src from WP if you pass only `id`)
+/**
+ * src/components/flex/logo_slider.astro
+ *
+ * Pull-through priority (first valid wins):
+ *   1) explicit `pull_from` (accepts our PullFrom shape or raw WP post/term object)
+ *        - when NO selector is provided, we pass moduleClass: "logo_slider"
+ *        - we DO NOT pass rowIndex in explicit mode
+ *   2) taxonomy: { termId + taxonomy } or { currentTerm.id + taxonomy }  (uses rowIndex)
+ *   3) page: postId or currentPost.id                                     (uses rowIndex)
+ *
+ * Local mode: pass `logos[]` (used only when no pulled HTML).
+ */
+
+import { fetchFlexText } from "../../lib/wp/pullFlexText";
+
+// ---------- Types ----------
+export type PullFrom = {
+  objectType?: "post" | "term"; // defaults to "post" if omitted
+  objectId?: number;
+  objectSlug?: string;          // (term only) resolve id by slug in fetchFlexText
+  taxonomy?: string;            // required when objectType === "term"
+  field?: string;               // defaults to "flex_text"
+  selector?: string;            // optional CSS id selector (#some-id)
+  rowIndex?: number;            // optional (ignored for explicit pulls per rule)
+  /** NEW: used by fetchFlexText to slice by module class when no selector is provided */
+  moduleClass?: string;         // e.g. "logo_slider" -> slices ".logo_slider-module"
+};
 
 type Logo = {
   id?: number;
@@ -16,50 +39,212 @@ type Logo = {
 };
 
 interface Props {
-  pull_from_html?: string;
-  pull_from_id?: string;
-  logos?: Logo[];
+  /** Pull-through contexts */
+  postId?: number | null;
+  currentPost?: any;
+
+  termId?: number | null;
+  taxonomy?: string | null;
+  currentTerm?: any;
+
+  /** Optional explicit override (can be PullFrom or raw WP post/term object) */
+  pull_from?: false | PullFrom | any;
+
+  /** Misc */
+  section_id?: string;
+  wrapperClasses?: string;
+  geo_keyword?: string;
+  rowIndex?: number;
+
+  /** Local rendering props */
+  logos?: Logo[] | null | undefined;
   title?: string;
   duration?: number;
-  wrapperClass?: string;
-  /** Base URL of your WP (e.g. https://example.com). Used to resolve media by id when src is missing. */
-  wpBaseUrl?: string;
 }
 
 const {
-  pull_from_html,
-  pull_from_id,
-  logos = [],
+  // contexts
+  postId: postIdRaw = null,
+  currentPost = null,
+  termId: termIdRaw = null,
+  taxonomy: taxonomyRaw = null,
+  currentTerm = null,
+
+  // explicit override
+  pull_from = false,
+
+  // misc
+  section_id = "",
+  wrapperClasses = "",
+  geo_keyword = "",
+  rowIndex = Astro.props.rowIndex as number | undefined,
+
+  // local
+  logos: logosRaw = [],
   title = "Selected Clients",
   duration = 3.5,
-  wrapperClass = "",
-  wpBaseUrl
 } = Astro.props as Props;
 
-// --- Helpers ---
-function extractSection(html: string, selector?: string): string {
-  if (!html) return "";
-  const src = String(html);
+/* ---------------- logos[] coercion (prevents "is not iterable") ---------------- */
+const logosInput: Logo[] = Array.isArray(logosRaw) ? logosRaw.filter(Boolean) : [];
 
-  if (selector && selector.startsWith("#")) {
-    const id = selector.slice(1);
-    const re = new RegExp(
-      `<([a-zA-Z]+)([^>]*\\s)id=["']${id}["'][^>]*>([\\s\\S]*?)<\\/\\1>`,
-      "i"
-    );
-    const m = src.match(re);
-    if (m) return m[0];
+/* ---------------- Resolve page/term ids ---------------- */
+function toNumOrNull(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+const pageId = toNumOrNull(postIdRaw) ?? toNumOrNull(currentPost?.id);
+const termId = toNumOrNull(termIdRaw) ?? toNumOrNull(currentTerm?.id);
+
+const taxonomy =
+  (typeof taxonomyRaw === "string" && taxonomyRaw.trim()) ||
+  (typeof currentTerm?.taxonomy === "string" && currentTerm.taxonomy) ||
+  null;
+
+/* ---------------- Build effective pull (robust) ---------------- */
+function isValidPullFrom(pf: any): pf is PullFrom {
+  if (!pf || typeof pf !== "object") return false;
+  const type = pf.objectType || "post"; // default to post if not set
+  if (type === "post") return Number.isFinite(pf.objectId);
+  if (type === "term") {
+    const hasIdOrSlug = Number.isFinite(pf.objectId) || !!pf.objectSlug;
+    return !!pf.taxonomy && hasIdOrSlug;
+  }
+  return false;
+}
+
+/** Accept PullFrom shape or raw WP post/term object and normalize to PullFrom (or null).
+ *  IMPORTANT: For explicit pulls, rowIndex is intentionally omitted per your rule.
+ *  If no selector is provided, we inject moduleClass: "logo_slider".
+ */
+function normalizeOverride(raw: any): PullFrom | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  // Already resembles our shape
+  if (raw.objectType === "post" || raw.objectType === "term" || typeof raw.objectType === "undefined") {
+    const out: PullFrom = {
+      field: raw.field || "flex_text",
+      objectType: raw.objectType || "post",
+      objectId: toNumOrNull(raw.objectId ?? raw.ID),
+      objectSlug: raw.objectSlug,
+      taxonomy: raw.taxonomy,
+      selector: raw.selector,
+      // rowIndex intentionally omitted for explicit pulls
+      moduleClass:
+        raw.selector ? raw.moduleClass : (raw.moduleClass || "logo_slider"), // default to logo_slider when no selector
+    };
+    return isValidPullFrom(out) ? out : null;
   }
 
-  // Default: first .logo_slider-module
-  {
-    const re = /<div[^>]*class=["'][^"']*logo_slider-module[^"']*["'][^>]*>([\s\S]*?)<\/div>/i;
-    const m = src.match(re);
-    if (m) return m[0];
+  // Raw WP post/page (has ID)
+  if (typeof raw.ID !== "undefined") {
+    const id = toNumOrNull(raw.ID);
+    if (id != null) {
+      return {
+        objectType: "post",
+        objectId: id,
+        field: "flex_text",
+        selector: raw.selector,
+        // rowIndex omitted for explicit pulls
+        moduleClass: raw.selector ? raw.moduleClass : (raw.moduleClass || "logo_slider"),
+      };
+    }
   }
 
-  // Fallback to whole HTML
-  return src;
+  // Raw WP term (has term_id or id) + taxonomy
+  const termIdMaybe = toNumOrNull(typeof raw.term_id !== "undefined" ? raw.term_id : raw.id);
+  if (termIdMaybe != null && typeof raw.taxonomy === "string" && raw.taxonomy) {
+    return {
+      objectType: "term",
+      objectId: termIdMaybe,
+      taxonomy: String(raw.taxonomy),
+      field: "flex_text",
+      selector: raw.selector,
+      // rowIndex omitted for explicit pulls
+      moduleClass: raw.selector ? raw.moduleClass : (raw.moduleClass || "logo_slider"),
+    };
+  }
+
+  return null;
+}
+
+let effectivePull: PullFrom | null = null;
+let mode: "explicit" | "taxonomy" | "page" | "none" = "none";
+let overrideIgnoredReason = "";
+
+// 1) explicit override (only if valid after normalization). No rowIndex; we attach moduleClass if no selector.
+if (pull_from && typeof pull_from === "object") {
+  const candidate = normalizeOverride(pull_from);
+  if (candidate) {
+    effectivePull = candidate;
+    mode = "explicit";
+  } else {
+    overrideIgnoredReason = "invalid pull_from (missing objectId or term taxonomy/id/slug)";
+  }
+}
+
+// 2) taxonomy fallback (uses rowIndex)
+if (!effectivePull && termId && taxonomy) {
+  effectivePull = {
+    objectType: "term",
+    objectId: termId,
+    taxonomy: String(taxonomy),
+    field: "flex_text",
+    rowIndex, // allowed in non-explicit mode
+  };
+  mode = "taxonomy";
+}
+
+// 3) page fallback (uses rowIndex)
+if (!effectivePull && pageId) {
+  effectivePull = {
+    objectType: "post",
+    objectId: pageId,
+    field: "flex_text",
+    rowIndex, // allowed in non-explicit mode
+  };
+  mode = "page";
+}
+
+console.log("[logo_slider] context decision", {
+  mode,
+  receivedPullFrom: pull_from && typeof pull_from === "object" ? Object.keys(pull_from) : pull_from,
+  overrideIgnoredReason,
+  pageId,
+  termId,
+  taxonomy,
+  rowIndex,
+  effectivePull,
+});
+
+/* ---------------- Pull-through fetch (only when valid) ---------------- */
+let pulledHtml = "";
+let pullDebug: any = null;
+
+if (effectivePull) {
+  const pulled = await fetchFlexText(effectivePull);
+  pulledHtml = pulled?.html || "";
+  pullDebug = pulled || {};
+  console.log("[logo_slider] fetchFlexText result", {
+    url: pulled?.url,
+    status: pulled?.status ?? 200,
+    error: pulled?.error || "",
+    peek: (pulled?.peek || "").slice(0, 200),
+    htmlLen: pulledHtml.length,
+  });
+} else {
+  console.warn("[logo_slider] No valid pull context (override invalid and no taxonomy/page fallback).", {
+    overrideIgnoredReason,
+    pageId,
+    termId,
+    taxonomy,
+  });
+}
+
+/* ---------------- Helpers ---------------- */
+function safeAlt(alt?: string) {
+  return alt ?? "";
 }
 
 function classForRatio(w?: number, h?: number): string {
@@ -67,101 +252,113 @@ function classForRatio(w?: number, h?: number): string {
   const ratio = Number((w / h).toFixed(3));
   const classes: string[] = [];
   if (ratio < 1.8) classes.push("square");
-  if (ratio < 1.1) classes.push("small"); // combines with 'square'
+  if (ratio < 1.1) classes.push("small");
   if (ratio < 2.3) classes.push("lg");
   return classes.join(" ").trim();
 }
 
-function safeAlt(alt?: string) {
-  return alt ?? "";
+function extractBySelector(html: string, selector?: string): string {
+  if (!html || !selector || !selector.startsWith("#")) return html;
+  const id = selector.slice(1);
+  const re = new RegExp(
+    `<([a-zA-Z]+)([^>]*\\s)id=["']${id}["'][^>]*>([\\s\\S]*?)<\\/\\1>`,
+    "i"
+  );
+  const m = html.match(re);
+  return m ? m[0] : html;
 }
 
-// Try to resolve a usable src from typical ACF image shapes
-function localSrcCandidate(logo: Logo): string | undefined {
-  return logo?.src || logo?.sizes?.intch_sm || logo?.url || undefined;
-}
-
-// Resolve media item from WP if only id provided
-async function resolveFromWpById(id: number) {
-  if (!wpBaseUrl) return null;
-  try {
-    const res = await fetch(`${wpBaseUrl.replace(/\/+$/,'')}/wp-json/wp/v2/media/${id}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const sizes = data?.media_details?.sizes ?? {};
-    const intch = sizes?.intch_sm?.source_url as string | undefined;
-    const src = intch || (data?.source_url as string | undefined);
-    const width = sizes?.intch_sm?.width ?? data?.media_details?.width;
-    const height = sizes?.intch_sm?.height ?? data?.media_details?.height;
-    const alt = (data?.alt_text as string | undefined) ?? "";
-    return { src, width, height, alt };
-  } catch {
-    return null;
-  }
-}
-
-// Build a normalized list of logos with guaranteed src when possible
+/* ---------------- Normalize local logos (fallback render) ---------------- */
 const normalized: Logo[] = [];
-for (const L of logos) {
+for (const L of logosInput) {
   if (!L) continue;
-
-  let src = L.sizes.intch_sm;
-  //console.log(src);
-  let width = L.width;
-  let height = L.height;
-  let alt = safeAlt(L.alt);
-  
-
-  // If still no src, skip this logo (previously caused "only one" to render)
+  const src = (L as any)?.sizes?.intch_sm || L.src || L.url || undefined;
   if (!src) continue;
-
   normalized.push({
     ...L,
     src,
-    width,
-    height,
-    alt
+    width: L.width,
+    height: L.height,
+    alt: safeAlt(L.alt),
   });
 }
 
-// Unique id for the instance
+// Precomputed strings for the debug panel
+const effectiveTypeStr = effectivePull?.objectType ? String(effectivePull.objectType) : "";
+const effectiveIdStr = typeof effectivePull?.objectId === "number" ? String(effectivePull.objectId) : "";
+const effectiveTaxStr = effectivePull?.taxonomy ? String(effectivePull.taxonomy) : "";
+const selectorStr = effectivePull?.selector ? String(effectivePull.selector) : "(none)";
+const moduleClassStr = effectivePull?.moduleClass ? String(effectivePull.moduleClass) : "(none)";
+
+// Slice-method flags from server helper (if returned)
+const usedSelector = String(pullDebug?.raw?.__debug?.usedSelector ?? "");
+const usedModuleClass = String(pullDebug?.raw?.__debug?.usedModuleClass ?? "");
+const usedRowIndex = String(pullDebug?.raw?.__debug?.usedRowIndex ?? "");
+
+// Unique id for this instance
 const uniq = `ls-${Math.random().toString(36).slice(2, 10)}`;
 ---
 
-{/** ===== Mode 1: Pull-through ===== */}
-{typeof pull_from_html === "string" && pull_from_html.trim().length > 0 ? (
-  <div set:html={extractSection(pull_from_html, pull_from_id)} />
+{pulledHtml ? (
+  <Fragment set:html={extractBySelector(pulledHtml, effectivePull?.selector)} />
 ) : (
-  /** ===== Mode 2: Build locally from logos ===== */
-  <div class:list={["hw-contain", wrapperClass].filter(Boolean)}>
-    <h2 class="eyebrow tac pt-6 pb-6">{title}</h2>
-
-    <div class="mq-dotted-wrap pr bg-white ofh min-[760px]:pt-[1.5rem] min-[760px]:pb-[1.5rem] pt-1 pb-1">
-      <div class="tac pr mq-outer logo-slider-outer always-mq">
-        <div
-          class="flex-wrap w100 container-fluid logo-slider mq-wrap"
-          data-dur={String(duration)}
-          id={`logo-slider-${uniq}`}
-        >
-          {normalized.length > 0 ? (
-            normalized.map((logo) => {
-              const ratioClass = classForRatio(logo.width, logo.height);
-              const alt = safeAlt(logo.alt);
-              const imgEl = <img src={logo.src!} class={ratioClass} alt={alt} />;
-
-              return (
-                <div class="logo-slide pr mq-item flex-wrap">
-                  <div class="logo-slide-inner">
-                    {imgEl}
+  <section id={section_id} class={wrapperClasses} data-geo={geo_keyword}>
+    <div class="hw-contain">
+      <h2 class="eyebrow tac pt-6 pb-6">{title}</h2>
+      <div class="mq-dotted-wrap pr bg-white ofh min-[760px]:pt-[1.5rem] min-[760px]:pb-[1.5rem] pt-1 pb-1">
+        <div class="tac pr mq-outer logo-slider-outer always-mq">
+          <div
+            class="flex-wrap w100 container-fluid logo-slider mq-wrap"
+            data-dur={String(duration)}
+            id={`logo-slider-${uniq}`}
+          >
+            {normalized.length > 0 ? (
+              normalized.map((logo) => {
+                const ratioClass = classForRatio(logo.width, logo.height);
+                const alt = safeAlt(logo.alt);
+                const imgEl = <img src={logo.src!} class={ratioClass} alt={alt} />;
+                return (
+                  <div class="logo-slide pr mq-item flex-wrap">
+                    <div class="logo-slide-inner">
+                      {logo.link ? <a href={logo.link}>{imgEl}</a> : imgEl}
+                    </div>
                   </div>
-                </div>
-              );
-            })
-          ) : (
-            <div class="tac opacity-60 py-6">No logos provided.</div>
-          )}
+                );
+              })
+            ) : (
+              <div class="tac opacity-60 py-6">No logos provided.</div>
+            )}
+          </div>
         </div>
       </div>
     </div>
-  </div>
+
+    {/* * Debug panel (plain)
+    <div style="margin-top:1rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
+      <div><strong>WP_BASE_URL:</strong> {import.meta.env.WP_BASE_URL || "(not set)"} </div>
+      <div><strong>mode:</strong> {mode}</div>
+      <div><strong>effective.objectType:</strong> {effectiveTypeStr}</div>
+      <div><strong>effective.objectId:</strong> {effectiveIdStr}</div>
+      <div><strong>taxonomy:</strong> {effectiveTaxStr}</div>
+      <div><strong>selector:</strong> {selectorStr}</div>
+      <div><strong>moduleClass:</strong> {moduleClassStr}</div>
+      <div><strong>rowIndex (sent):</strong> {String(effectivePull?.rowIndex ?? "(none)")}</div>
+      <div><strong>slice.usedSelector:</strong> {usedSelector}</div>
+      <div><strong>slice.usedModuleClass:</strong> {usedModuleClass}</div>
+      <div><strong>slice.usedRowIndex:</strong> {usedRowIndex}</div>
+      {overrideIgnoredReason && (
+        <div><strong>override ignored:</strong> {overrideIgnoredReason}</div>
+      )}
+      {pullDebug && (
+        <details open>
+          <summary><strong>Pull Debug</strong></summary>
+          <div><strong>status:</strong> {String(pullDebug.status ?? "")}</div>
+          <div><strong>url:</strong> {String(pullDebug.url ?? "")}</div>
+          <div><strong>error:</strong> {String(pullDebug.error ?? "")}</div>
+          <div><strong>peek:</strong> {String(pullDebug.peek ?? "").slice(0, 300)}</div>
+          <div><strong>raw keys:</strong> {pullDebug.raw ? Object.keys(pullDebug.raw).join(", ") : "(none)"} </div>
+        </details>
+      )}
+    </div> */}
+  </section>
 )}

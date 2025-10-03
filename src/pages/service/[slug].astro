@@ -1,0 +1,236 @@
+---
+// src/pages/service/[slug].astro
+import BaseLayout from "../../layouts/MainLayout.astro";
+import LayoutRenderer from "../../lib/wp/LayoutRenderer.astro";
+import GFForm from "@/components/GFForm.astro";
+import { fetchFlexText } from "@/lib/wp/pullFlexText";
+import * as cheerio from "cheerio";
+
+import { getAllServiceTermPaths, getFlexibleServiceTermBySlug } from "../../lib/api";
+
+/* ---------------------------------------------
+ * Static paths
+ * ------------------------------------------- */
+export async function getStaticPaths() {
+  return getAllServiceTermPaths();
+}
+
+/* ---------------------------------------------
+ * Params & term (from your synced JSON)
+ * ------------------------------------------- */
+const { slug } = Astro.params as { slug: string };
+const term = getFlexibleServiceTermBySlug(slug);
+
+if (!term) {
+  Astro.response.status = 404;
+  Astro.response.statusText = "Service term not found";
+}
+
+/* ---------------------------------------------
+ * Basics
+ * ------------------------------------------- */
+const taxonomy = "service";
+const pageTitle = term?.title || term?.name || slug;
+const termId =
+  Number(term?.id ?? term?.term_id ?? term?.databaseId ?? term?.ID) || null;
+
+// we’ll render GFForm id=1; change if you map a field later
+const gfFormId = 1;
+
+/* ---------------------------------------------
+ * Pull compiled flex_text for the TERM, slice banner with cheerio
+ * ------------------------------------------- */
+let bannerLeftHTML = "";       // full <div class="tax-service-banner-half-img">...</div>
+let titleText = pageTitle;     // h1 title (text only)
+let geoSubHTML = "";           // inner HTML for the geo subtitle div
+let descHTML = "";             // inner HTML for the description block
+let formIntroHTML = "";        // inner HTML for ".form-intro-text" if present
+
+let pullDebug: any = {
+  ok: false,
+  url: "",
+  status: 0,
+  error: "",
+  peek: "",
+  foundBanner: false,
+  selectorsTried: [".tax-term-banner", ".tax-service-banner"]
+};
+
+// normalize <img> tags in a cheerio scope
+function normalizeBannerImgs($: cheerio.CheerioAPI, $scope: cheerio.Cheerio) {
+  $scope.find("img").each((_, el) => {
+    const $img = $(el);
+    const dataSrc = $img.attr("data-src");
+    const dataSrcset = $img.attr("data-srcset");
+
+    // replace data-src/srcset → src/srcset
+    if (dataSrc) $img.attr("src", dataSrc);
+    if (dataSrcset) $img.attr("srcset", dataSrcset);
+
+    // add desired attrs
+    $img.attr("loading", "lazy");
+    $img.attr("fetchpriority", "high");
+    $img.attr("async", "");
+
+    // tidy up
+    $img.removeAttr("data-src");
+    $img.removeAttr("data-srcset");
+  });
+}
+
+// swap 'container-fluid' → 'hw-contain' in any class attribute inside scope
+function swapContainerFluid($: cheerio.CheerioAPI, $scope: cheerio.Cheerio) {
+  $scope.find('[class*="container-fluid"]').each((_, el) => {
+    const $el = $(el);
+    const classes = ($el.attr("class") || "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(c => (c === "container-fluid" ? "hw-contain" : c));
+    $el.attr("class", Array.from(new Set(classes)).join(" "));
+  });
+}
+
+if (termId) {
+  const pulled = await fetchFlexText({
+    objectType: "term",
+    objectId: termId,
+    taxonomy,
+    field: "flex_text"
+    // no selector or rowIndex — slice client-side to avoid extra wrappers
+  });
+
+  pullDebug.url = pulled?.url || "";
+  pullDebug.status = pulled?.status || 200;
+  pullDebug.error = pulled?.error || "";
+  pullDebug.peek = (pulled?.peek || "").slice(0, 200);
+  pullDebug.ok = !pulled?.status || (pulled?.status >= 200 && pulled?.status < 300);
+
+  const html = pulled?.html || "";
+  if (html) {
+    try {
+      const $ = cheerio.load(html, { decodeEntities: false });
+
+      // Try tax-term-banner first, then tax-service-banner
+      let $banner = $(".tax-term-banner").first();
+      if ($banner.length === 0) $banner = $(".tax-service-banner").first();
+
+      if ($banner.length > 0) {
+        pullDebug.foundBanner = true;
+
+        // Work on a clone so we don't mutate the original (safer if reused)
+        const $bannerClone = $banner.clone();
+
+        // 1) Normalize images
+        normalizeBannerImgs($, $bannerClone);
+
+        // 2) Swap any container-fluid → hw-contain inside the pulled banner HTML
+        swapContainerFluid($, $bannerClone);
+
+        const taxClass = `tax-${taxonomy}-banner`;
+        const $left  = $bannerClone.find(`.${taxClass}-half-img`).first();
+        const $right = $bannerClone.find(`.${taxClass}-half-text`).first();
+
+        // LEFT: inject exact HTML (no extra wrapper)
+        if ($left.length) {
+          bannerLeftHTML = $.html($left);
+        }
+
+        // RIGHT → extract pieces so we can reassemble with our GFForm component
+        if ($right.length) {
+          // title (strip nested geo element)
+          const $h1 = $right.find(`.${taxClass}-title-half`).first().clone();
+          $h1.find(`.${taxClass}-geo-sub`).first().remove();
+          const txt = $h1.text().trim();
+          if (txt) titleText = txt;
+
+          // geo subtitle HTML
+          const $geoReal = $right.find(`.${taxClass}-geo-sub`).first();
+          if ($geoReal.length) geoSubHTML = $geoReal.html() || "";
+
+          // description HTML
+          const $desc = $right.find(`.${taxClass}-desc`).first();
+          if ($desc.length) descHTML = $desc.html() || "";
+
+          // form intro HTML (optional)
+          const $intro = $right.find(".form-intro-text").first();
+          if ($intro.length) formIntroHTML = $intro.html() || "";
+        }
+      }
+    } catch (e: any) {
+      pullDebug.error = pullDebug.error || e?.message || String(e);
+    }
+  }
+}
+---
+
+<BaseLayout title={pageTitle}>
+  {/* ===== Banner (left from WP, right rebuilt so we can inject GFForm) ===== */}
+  <section class={`rowindex-1 tax-${taxonomy}-banner tax-term-banner`}>
+    {/* NOTE: swapped to hw-contain here too */}
+    <div class={`hw-contain flex-wrap tal tax-${taxonomy}-banner-flex`}>
+
+      {/* LEFT: inject without adding a wrapper (use Fragment, not <div>) */}
+      {bannerLeftHTML ? (
+        <Fragment set:html={bannerLeftHTML} />
+      ) : (
+        <div class={`tax-${taxonomy}-banner-half-img`}></div>
+      )}
+
+      {/* RIGHT: rebuild so we can render <GFForm /> instead of WP's GF markup */}
+      <div class={`tax-${taxonomy}-banner-half-text`}>
+        <h1 class={`lilblur tax-${taxonomy}-banner-title-half round-vw-lh`}>
+          {titleText}
+          <div
+            class={`w100 tax-${taxonomy}-banner-geo-sub icon-marker`}
+            set:html={geoSubHTML || 'Serving Long Island, NYC, & the Tri-State Area <span class="twenty-five-yrs">for over 25 years</span>'}
+          />
+        </h1>
+
+        {descHTML && (
+          <div class={`tax-${taxonomy}-banner-desc round-vw-lh`} set:html={descHTML} />
+        )}
+
+        <div class={`tax-${taxonomy}-banner-form-wrap banner-form-wrap`}>
+          {formIntroHTML && (
+            <div class="form-intro-text mb2 tac" set:html={formIntroHTML} />
+          )}
+
+          {gfFormId && (
+            <div class="banner-form-inner">
+              <GFForm
+                formId={gfFormId}
+                wpBase={import.meta.env.WP_BASE_URL || ""}
+                showTitle={false}
+                showDescription={false}
+                theme="gravity-theme"
+                ajax={false}
+                viaProxy={true}
+              />
+            </div>
+          )}
+
+          <div class="tax-badge-placeholder" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ===== Flexible layouts AFTER the banner (from your synced JSON) ===== */}
+  {Array.isArray(term?.layouts) && term.layouts.length > 0 ? (
+    <LayoutRenderer layouts={term.layouts} taxContext="service" />
+  ) : null}
+
+
+
+  <!-- {/* ===== Debug ===== */}
+  <div style="margin:1rem auto; max-width:64rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
+    <div><strong>slug:</strong> {slug}</div>
+    <div><strong>termId:</strong> {String(termId)}</div>
+    <div><strong>pull url:</strong> {pullDebug.url}</div>
+    <div><strong>status:</strong> {String(pullDebug.status)}</div>
+    <div><strong>ok:</strong> {String(pullDebug.ok)}</div>
+    <div><strong>found banner:</strong> {String(pullDebug.foundBanner)}</div>
+    {pullDebug.error && <div><strong>error:</strong> {pullDebug.error}</div>}
+    {pullDebug.peek && <div><strong>peek:</strong> {pullDebug.peek}</div>}
+  </div> -->
+</BaseLayout>

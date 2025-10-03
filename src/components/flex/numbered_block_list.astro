@@ -1,247 +1,378 @@
 ---
-/**
- * numbered_block_list.astro
- * - Local render from props.list
- * - Optional pull-through from WP via /wp-json/cv/v1/acf-flex-text
- *
- * Expected props (example from your log):
- * {
- *   layout_settings: { bg_color: 'none' },
- *   section_id: 'why-clearview',
- *   pull_from: false OR {
- *     objectType: 'post' | 'term',
- *     objectId: number,
- *     taxonomy?: string,         // required for term
- *     field?: string,            // defaults to 'flex_text'
- *     selector?: string          // e.g. '#why-clearview'
- *   },
- *   eyebrow: 'What we offer',
- *   section_title: 'Why Great Neck Businesses Choose Clear View',
- *   small_title: false,
- *   no_num: false,
- *   list: [{
- *     title: string,
- *     text: string (HTML),
- *     img_align: 'left'|'center'|'right' (free-form),
- *     images: [{
- *        id?: number,
- *        alt?: string,
- *        src?: string, url?: string,
- *        width?: number, height?: number,
- *        sizes?: { intch_xl?: string, intch_lg?: string, intch_med?: string, intch_sm?: string }
- *     }]
- *   }]
- * }
- */
+import { fetchFlexText } from "../../lib/wp/pullFlexText";
 
-type NBImage = {
-  id?: number;
-  alt?: string;
-  src?: string;
-  url?: string;
-  width?: number;
-  height?: number;
-  sizes?: Record<string, string>;
+// Log incoming props on the server
+console.log("[project_slider] Astro.props:", Astro.props);
+
+// Pull type
+export type PullFrom = {
+  objectType: "post" | "term";
+  objectId?: number;
+  taxonomy?: string;    // required when objectType === "term"
+  field?: string;       // defaults to "flex_text"
+  selector?: string;    // e.g. "#why-clearview"
+  rowIndex?: number;
 };
-
-type NBItem = {
-  title?: string;
-  text?: string; // HTML allowed
-  img_align?: string; // "center" etc.
-  images?: NBImage[];
-};
-
-interface PullFrom {
-  objectType: 'post' | 'term';
-  objectId: number;
-  taxonomy?: string;
-  field?: string;
-  selector?: string;
-}
 
 interface Props {
-  layout_settings?: { bg_color?: string };
+  // Page context
+  postId?: number | null;
+  currentPost?: any;
+
+  // Taxonomy context
+  termId?: number | null;
+  taxonomy?: string | null;
+
+  // Misc
   section_id?: string;
-  pull_from?: false | PullFrom;
-  eyebrow?: string;
-  section_title?: string;
-  small_title?: boolean;
-  no_num?: boolean;
-  list?: NBItem[];
-
-  // optional geo keyword for data-geo attr (parity with PHP template)
+  wrapperClasses?: string;
   geo_keyword?: string;
-
-  // container class if you need to wrap differently
-  containerClass?: string;
+  rowIndex?: number;
 }
 
 const {
-  layout_settings = { bg_color: 'none' },
-  section_id = '',
-  pull_from = false,
-  eyebrow = '',
-  section_title = '',
-  small_title = false,
-  no_num = false,
-  list = [],
-  geo_keyword = '',
-  containerClass = ''
+  postId = null,
+  currentPost = null, // not used directly here but kept for symmetry
+  termId = null,
+  taxonomy = null,
+  section_id = "",
+  wrapperClasses = "",
+  geo_keyword = "",
+  rowIndex = Astro.props.rowIndex as number | undefined,
 } = Astro.props as Props;
 
-/* ---------------- helpers ---------------- */
+let pulledHtml = "";
+let pullDebug: any = null;
 
-function decodeEntitiesDeep(s = ''): string {
-  let out = s;
-  for (let i = 0; i < 4; i++) {
-    const before = out;
-    out = out
-      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-      .replace(/&#(\d+);/g,       (_, n) => String.fromCharCode(parseInt(n, 10)))
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&amp;/g, "&");
-    if (out === before) break;
-  }
-  return out;
+// Decide the pull source:
+// 1) If we have a taxonomy term context, pull as term
+// 2) Else if we have a postId, pull as post
+let effectivePull: PullFrom | null = null;
+
+if (termId && taxonomy) {
+  effectivePull = {
+    objectType: "term",
+    objectId: termId,
+    taxonomy: String(taxonomy),
+    field: "flex_text",
+    rowIndex,
+  };
+} else if (postId) {
+  effectivePull = {
+    objectType: "post",
+    objectId: postId,
+    field: "flex_text",
+    rowIndex,
+  };
 }
 
-function ensureHtml(s = ''): string {
-  if (!s) return '';
-  // decode entities (covers cases where HTML was stored double-encoded)
-  return decodeEntitiesDeep(s);
-}
+if (effectivePull) {
+  const pulled = await fetchFlexText(effectivePull);
+  pulledHtml = pulled?.html || "";
+  pullDebug = pulled || {};
 
-function bestImgSrc(img: NBImage): string {
-  const sz = img?.sizes || {};
-  // mirrors your preference for larger sizes first
-  return sz.intch_lg || sz.intch_xl || sz.intch_med || sz.intch_sm || img?.src || img?.url || '';
-}
-
-function computeAspect(img: NBImage): string {
-  const w = Number(img?.width || 0);
-  const h = Number(img?.height || 0);
-  if (w > 0 && h > 0) {
-    // If portrait-ish in your PHP you forced 15/10
-    if (h > w) return '15/10';
-    return `${w} / ${h}`;
-  }
-  // fallback
-  return '16/10';
-}
-
-/* ---------------- pull-through via REST ---------------- */
-
-const WP_BASE = import.meta.env.PUBLIC_WP_BASE || ''; // e.g. https://yoursite.com
-
-type FetchResp = { html: string };
-
-async function fetchFlexText(pf: PullFrom): Promise<FetchResp> {
-  if (!WP_BASE) return { html: '' };
-
-  const field = pf.field || 'flex_text';
-  const params = new URLSearchParams({
-    object_type: pf.objectType,
-    object_id: String(pf.objectId),
-    field
+  console.log("[project_slider] pull result:", {
+    mode: effectivePull.objectType,
+    taxonomy: effectivePull.taxonomy || null,
+    objectId: effectivePull.objectId ?? null,
+    status: pulled?.status,
+    url: pulled?.url,
+    error: pulled?.error,
+    peek: pulled?.peek,
+    htmlLen: pulledHtml.length,
   });
-  if (pf.objectType === 'term' && pf.taxonomy) params.set('taxonomy', pf.taxonomy);
-  if (pf.selector) params.set('selector', pf.selector);
-
-  try {
-    const res = await fetch(`${WP_BASE}/wp-json/cv/v1/acf-flex-text?${params.toString()}`);
-    if (!res.ok) return { html: '' };
-    const data = await res.json();
-    // If selector was used, plugin returns it in selected.html; else use html
-    const html = (data?.selected?.html ?? data?.html) || '';
-    return { html };
-  } catch {
-    return { html: '' };
-  }
+} else {
+  console.warn("[project_slider] No valid pull context (need postId OR {termId,taxonomy}).", {
+    postId,
+    termId,
+    taxonomy,
+  });
 }
-
-let pulledHtml = '';
-if (pull_from && typeof pull_from === 'object') {
-  const pulled = await fetchFlexText(pull_from);
-  pulledHtml = pulled.html || '';
-}
-
-/* ---------------- classes ---------------- */
-
-const bgClass = `bg-${layout_settings?.bg_color || 'none'}`;
-const titleClass = small_title ? 'lg-section-text med ls-5' : 'num-block-title';
-const wrapperClasses = [
-  'numbered_block_list-module',
-  bgClass,
-  containerClass
-].filter(Boolean).join(' ');
 ---
 
 {pulledHtml ? (
-  // ===== Mode 1: Pull-through =====
-  <section id={section_id} class={wrapperClasses} data-geo={geo_keyword}>
-    <div set:html={pulledHtml} />
-  </section>
+  <Fragment set:html={pulledHtml} />
 ) : (
-  // ===== Mode 2: Local render =====
   <section id={section_id} class={wrapperClasses} data-geo={geo_keyword}>
-    <div class="pb-24 no-num-{no_num}">
-      <div class="hw-contain num-block-flex pr flex-wrap">
-        <div class="num-block-title-wrap">
-          {eyebrow && (
-            <div class="eyebrow pb-6 c-brandgreen num-block-eyebrow">
-              {eyebrow}
-            </div>
-          )}
-          {section_title && (
-            <h2 class={`${titleClass} round-vw-lh mb-20 lilblur wrap-chars`} set:html={ensureHtml(section_title)} />
-          )}
-        </div>
+    <div>No pulled HTML – render local here.</div>
 
-        <div class="num-block-list pr">
-          <div class="num-block-list-inner flex-wrap">
-            {list.map((item, idx) => {
-              const num = idx + 1;
-              const thenum = no_num ? '' : `<span class='c-brandgreen eyebrow'>0${num}</span>`;
-              // Build overlay slides HTML (if any)
-              const slidesHtml = Array.isArray(item.images) && item.images.length
-                ? item.images.map((img, i) => {
-                    const src = bestImgSrc(img);
-                    if (!src) return '';
-                    const aspect = computeAspect(img);
-                    const align = item.img_align || 'center';
-                    const alt = img?.alt ? `alt="${img.alt.replace(/"/g, '&quot;')}"` : `alt=""`;
-                    return `
-                      <div style="aspect-ratio: ${aspect}" class="img-align-${align} num-block-img-wrap num-block-img-${i} abs">
-                        <img async loading='lazy' fetchpriority='high' src="${src}" class="pr num-block-img lg-img-${i}" ${alt} />
-                      </div>
-                    `;
-                  }).join('')
-                : '';
-
-              return (
-                <Fragment>
-                  <div class="num-block-li">
-                    <div>
-                      <Fragment set:html={thenum} />
-                      {item.title && (
-                        <h3 class="num-block-li-title" set:html={ensureHtml(item.title)} />
-                      )}
-                      <div class="num-block-li-text">
-                        {item.text && <Fragment set:html={ensureHtml(item.text)} />}
-                      </div>
-                    </div>
-                  </div>
-                  {/* overlay images positioned absolutely like your PHP */}
-                  {slidesHtml && <Fragment set:html={slidesHtml} />}
-                </Fragment>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+    {/* Visible debug panel for live Netlify troubleshooting */}
+    <div style="margin-top:1rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
+      <div><strong>WP_BASE_URL:</strong> {import.meta.env.WP_BASE_URL || "(not set)"} </div>
+      <div><strong>mode:</strong> {termId && taxonomy ? "taxonomy" : postId ? "page" : "none"} </div>
+      <div><strong>taxonomy:</strong> {String(taxonomy ?? "")}</div>
+      <div><strong>termId:</strong> {String(termId ?? "")}</div>
+      <div><strong>postId:</strong> {String(postId ?? "")}</div>
+      <div><strong>rowIndex:</strong> {String(rowIndex ?? "")}</div>
+      {pullDebug && (
+        <details open>
+          <summary><strong>Pull Debug</strong></summary>
+          <div><strong>status:</strong> {String(pullDebug.status ?? "")}</div>
+          <div><strong>url:</strong> {String(pullDebug.url ?? "")}</div>
+          <div><strong>error:</strong> {String(pullDebug.error ?? "")}</div>
+          <div><strong>peek:</strong> {String(pullDebug.peek ?? "").slice(0, 300)}</div>
+          <div><strong>raw keys:</strong> {pullDebug.raw ? Object.keys(pullDebug.raw).join(", ") : "(none)"} </div>
+        </details>
+      )}
     </div>
   </section>
 )}
+
+<style is:global>
+.img-full-image-wrap {
+    min-height: calc(var(--jsVhUnits100) * .85);
+}
+.img_full_quote-module .img-full-text {
+  width: 100%;
+  z-index: 10;
+}
+
+.img-full-title,
+.img-full-text {
+  padding-left: 3rem;
+  padding-top: 2.5rem;
+}
+
+.img-align-bottom img {
+  object-position: center bottom;
+}
+
+.img-align-top img {
+  object-position: center top;
+}
+
+.img-full-image-wrap,
+.img-full-image-inner img {
+z-index: 20;
+  border-radius: var(--imgRadius);
+}
+
+.img-full-image {
+  will-change: transform;
+  transform: scale(calc((0.1 * var(--progress)) + 1));
+}
+
+.img_full_quote-module {
+  .img-full-image-inner img.lazy-loaded.selected {
+    opacity: 1;
+  }
+
+  .img-full-image-inner img.lazy-loaded:not(.selected)) {
+    opacity: 0 !important;
+  }
+}
+
+.img-full-stats-wrap {
+  width: 80%;
+  min-width: 920px;
+  align-items: stretch !important;
+  bottom: var(--containerPadding);
+  right: 0rem;
+  gap: 30px;
+
+  .stat-outer {
+    font-size: calc(4vw + 1.5rem);
+    line-height: 0.85em;
+  }
+
+  .stat-card {
+    font-size: 1.41rem;
+    background: rgba(0, 0, 0, 0.17);
+    box-shadow: 0 0 2rem rgba(0, 0, 0, 0.15);
+    padding: 2rem;
+    color: #fff;
+    flex: 1;
+    -webkit-backdrop-filter: blur(15px);
+    backdrop-filter: blur(15px);
+    border-radius: 1.5rem;
+    max-width: 33.33%;
+
+    p {
+      font-size: 1.4rem;
+      line-height: 1.75rem;
+    }
+
+    h3 {
+      font-weight: 550;
+      font-size: 1.75rem;
+      line-height: 2rem;
+      min-height: 2em;
+    }
+  }
+
+  .img-full-stat-desc {
+    margin: 0 -2rem;
+    padding: 1.25rem 2rem 0;
+    align-self: flex-end;
+    font-size: 1.416rem;
+    line-height: 1.75rem;
+    min-height: 5rem;
+    min-width: calc(100% + 4rem);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+@media (max-width: 1579px) {
+  .img-full-title {
+    padding-left: 2rem;
+  }
+
+  .img-full-stats-wrap {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (min-width: 1000px) {
+  .img-full-stats-wrap {
+    padding: 2rem;
+    bottom: 0rem;
+  }
+}
+
+@media (max-width: 999px) {
+  .img-full-image-wrap {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .img-full-image-inner {
+    position: static !important;
+  }
+
+  .img_full-module {
+    .img-full-stats-wrap {
+      height: auto !important;
+    }
+  }
+
+  .test-slide {
+    max-width: calc(100% - 4rem);
+    margin: 0 2rem;
+    padding: 0 !important;
+  }
+
+  .img-full-quote {
+    position: relative;
+    margin-bottom: 0 !important;
+  }
+
+  .img_full_quote-module,
+  .img_full-module {
+    .img-full-image-inner {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .img-full-image-wrap {
+      height: auto !important;
+    }
+
+    .full-testimonials-slider,
+    .img-full-stats-wrap {
+      margin-top: auto;
+      padding-top: 6rem;
+      margin-bottom: 2rem;
+      position: relative !important;
+    }
+
+    .full-testimonials-slider {
+      width: 100%;
+      box-sizing: content-box;
+    }
+  }
+
+  .img-full-stats-wrap .stat-card {
+    height: auto;
+    padding: 2rem 2rem 1.5rem;
+    min-width: 320px;
+    margin-left: auto;
+    margin-top: 1.5rem;
+
+    &:not(:last-child) {
+      margin-bottom: 1rem;
+    }
+  }
+
+  .img-full-stats-wrap .stat-card h3 {
+    min-height: 0;
+    font-size: 1.55rem;
+  }
+
+  .img-full-stats-wrap {
+    height: auto;
+    margin-top: auto;
+    padding-top: 6rem;
+    position: relative !important;
+  }
+
+  .img-full-stats-wrap .img-full-stat-desc {
+    min-height: 0;
+  }
+
+  .img-full-stats-wrap .stat-outer {
+    font-size: calc(5vw + 2.25rem);
+  }
+}
+
+@media (max-width: 699px) {
+  .img-full-title {
+    padding: 0;
+  }
+
+  .img-full-stats-wrap .stat-card {
+    margin-right: auto;
+    margin-left: 0;
+  }
+
+  .img-full-stats-wrap .stat-card p {
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 599px) {
+  .img-full-stats-wrap .stat-card {
+    height: auto;
+  }
+
+  .img-full-text .zeta {
+    font-size: 1.44rem;
+  }
+}
+
+@media (max-width: 391px) {
+  .img-full-stats-wrap .stat-card {
+    min-width: 100%;
+    width: 100%;
+  }
+}
+
+.img-full-wrap .img-full-image.lazy-loaded {
+  opacity: 0.8;
+}
+
+.img-full-wrap {
+  background: #000;
+  border-radius: 2rem;
+
+  &:before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom right,
+      rgba(0, 0, 0, 0.55) 0%,
+      rgba(0, 0, 0, 0) 70%
+    );
+    z-index: 20;
+    pointer-events: none;
+  }
+}
+
+.img-full-image-inner {
+  padding: 1rem;
+}
+    
+</style>

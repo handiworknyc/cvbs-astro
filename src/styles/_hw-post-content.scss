@@ -1,0 +1,813 @@
+/* ============================================================
+  Global / Page-Level variables used by repeated selector groups
+   (property-aware names; only for groups reused responsively)
+   ============================================================ */
+:root {
+	/* Section padding for full-bleed & slider groups */
+	--section-pt: 1.25rem;
+	/* 15/@px */
+	--section-pb: 3.3333rem;
+	/* 40/@px */
+}
+
+@media (min-width: 1024px) {
+	:root {
+		--section-pb: 4rem;
+		/* 48/@px */
+	}
+}
+
+/* ============================================================
+  Post Content Wrappers
+   ============================================================ */
+
+.post-content>*:first-child {
+	padding-top: 0;
+	margin-top: 0;
+}
+
+.post-content>*:last-child {
+	margin-bottom: 0;
+}
+
+.article-wrapper {
+	padding: 0;
+	position: relative;
+}
+
+.post-content strong {
+	font-weight: bold;
+}
+
+.post-content-module-wide {
+	position: relative;
+}
+
+.post-content-slider {
+	outline: none !important;
+}
+
+@media (min-width: 321px) {
+	.post-content-slider {
+		margin-left: auto;
+		margin-right: auto;
+	}
+}
+
+/* Use shared variables for the repeated section padding group */
+.full-bleed,
+.post-content-slider {
+	padding: var(--section-pt) 0 var(--section-pb);
+}
+
+.video-wrapper:last-child {
+	margin-bottom: 0;
+}
+
+.video-wrapper {
+	position: relative;
+	padding-bottom: 56.24%;
+	/* 16:9 */
+	height: 0;
+}
+
+.video-wrapper iframe {
+	position: absolute;
+	top: 0;
+	left: 50%;
+	min-width: 100%;
+	max-width: 25rem !important;
+	/* 300/@px */
+	width: 0.0833rem !important;
+	/* 1/@px */
+	height: 14.0833rem !important;
+	/* 169/@px */
+	transform: translateX(-50%);
+}
+
+@media (min-width: 480px) {
+	.video-wrapper {
+		width: 100%;
+	}
+
+	.video-wrapper iframe {
+		max-width: none !important;
+		width: 100% !important;
+		left: 0;
+		transform: translateX(0);
+		height: 100% !important;
+	}
+}
+
+@media (min-width: 1024px) {
+	.post-content-module-wide {
+		width: 62.3333rem;
+		left: -7.5rem;
+	}
+
+	/* 748/@px, -90/@px */
+	.post-content-slide img {
+		max-width: 62.3333rem;
+	}
+
+	.post-content-module-xtra-wide {
+		margin: 0 -15.8333rem;
+		position: relative;
+		padding: 3rem 0;
+	}
+
+	/* -190/@px, 36/@px */
+}
+
+sup {
+	font-size: .5em;
+	position: relative;
+	top: -.6em;
+}
+
+/* ============================================================
+  Post Content Headers
+   ============================================================ */
+
+.post-content-slider+.post-content-module>h2:first-child,
+.post-content-slider+.post-content-module>h3:first-child,
+.post-content-slider+.post-content-module>h4:first-child,
+.post-content-slider+.post-content-module>h5:first-child,
+.post-content-module-wide+.post-content-module>h2:first-child,
+.post-content-module-wide+.post-content-module>h3:first-child,
+.post-content-module-wide+.post-content-module>h4:first-child,
+.post-content-module-wide+.post-content-module>h5:first-child,
+.post-content-module-xtra-wide+.post-content-module>h2:first-child,
+.post-content-module-xtra-wide+.post-content-module>h3:first-child,
+.post-content-module-xtra-wide+.post-content-module>h4:first-child,
+.post-content-module-xtra-wide+.post-content-module>h5:first-child,
+.post-content blockquote+h2,
+.post-content blockquote+h3,
+.post-content blockquote+h4,
+.post-content blockquote+h5,
+.post-content-slider+h1,
+.post-content-slider+h2,
+.post-content-slider+h3,
+.post-content-slider+h4,
+.post-content-slider+h5,
+.post-content-slider+h6,
+.video-wrapper+h1,
+.video-wrapper+h2,
+.video-wrapper+h3,
+.video-wrapper+h4,
+.video-wrapper+h5,
+.video-wrapper+h6 {
+	padding-top: 0;
+}
+
+/* ============================================================
+  Post Content Paragraphs, Lists
+   (Introduce variables ONLY for the big repeated groups)
+   ============================================================ */
+
+.post-content {
+	/* Group applied to: p, ol, ul, hr, .video-wrapper, .wp-caption */
+	--group-mb: 1.75rem;
+	/* 21/@px */
+	/* hr top margin when used in that group */
+	--hr-mt: 2rem;
+	/* 24/@px */
+
+	/* module list margins (used inside media queries below) */
+	--ul-ml: 1.25rem;
+	/* 15/@px */
+	--ul-mr: 1.25rem;
+	/* 15/@px */
+	--ol-ml: 1.75rem;
+	/* 21/@px */
+	--ol-mr: 1.75rem;
+	/* 21/@px */
+
+	/* Apply once to the shared selector group */
+	p,
+	ol,
+	ul,
+	hr,
+	.video-wrapper,
+	.wp-caption {
+		margin-bottom: var(--group-mb);
+	}
+
+	hr {
+		border-top: 0.0833rem solid #bbd9ea;
+		margin-top: var(--hr-mt);
+	}
+
+	.delta {
+
+		p,
+		.post-content-module>ol,
+		.post-content-module>ul,
+		.post-content hr,
+		.wp-caption,
+		.video-wrapper {
+			margin-bottom: 3rem;
+		}
+
+		/* 36/@px */
+	}
+
+	.iota {
+
+		p,
+		.post-content-module>ol,
+		.post-content-module>ul,
+		.post-content hr,
+		.wp-caption,
+		.video-wrapper {
+			margin-bottom: 1.75rem;
+		}
+
+		/* 21/@px */
+	}
+}
+
+.about-post-item.post-content p:first-child:last-child {
+	margin-bottom: 0 !important;
+}
+
+.post-content p+hr,
+.post-content ol+hr,
+.post-content ul+hr,
+.post-content hr:first-child:last-child,
+.post-content .video-wrapper+hr {
+	margin-top: 0;
+}
+
+.post-content .alignleft+*,
+.post-content .alignleft+*,
+.post-content .alignleft+* {
+	clear: right;
+}
+
+.post-content .alignright+*,
+.post-content .alignright+*,
+.post-content .alignright+* {
+	clear: left;
+}
+
+.post-content .alignright+*+*,
+.post-content .alignleft+*+*,
+.post-content .alignright+*+*,
+.post-content .alignleft+*+* {
+	clear: both;
+}
+
+.post-content ol,
+.post-content ul {
+	margin-bottom: 1.5rem;
+	/* 18/@px */
+	margin-right: 1.25rem;
+	/* 15/@px */
+	overflow: visible;
+
+	&:last-child {
+		margin-bottom: 0;
+	}
+}
+
+.post-content ul {
+	margin-left: 1.5rem;
+
+	/* 18/@px */
+	>li {
+		list-style-type: disc;
+
+		li {
+			list-style-type: circle;
+
+			li {
+				list-style-type: disc;
+			}
+		}
+	}
+
+	>li::marker {
+		font-weight: bold;
+	}
+}
+
+.post-content ol {
+	list-style: decimal;
+
+	>li {
+		padding-left: .4167rem;
+		margin-left: -.4167rem;
+	}
+
+	/* 5/@px */
+	>li::marker {
+		position: relative;
+		left: -.5rem;
+	}
+
+	/* -6/@px */
+}
+
+.post-content li ol,
+.post-content li ul {
+	margin-top: 2rem;
+}
+
+/* 24/@px */
+.post-content ol>li>ol {
+	margin-left: 2.5rem;
+}
+
+/* 30/@px */
+.post-content ol>li>ul,
+.post-content ul>li>ul {
+	margin-left: 2.5rem;
+}
+
+/* 30/@px */
+
+@media (min-width: 768px) {
+	.post-content {
+		/* adjust only the variables used by the big group */
+		--group-mb: 2rem;
+		/* 24/@px */
+		--hr-mt: 2rem;
+
+		/* use the module list margin variables on these groups */
+		.post-content-module>ul {
+			margin-left: var(--ul-ml);
+			margin-right: var(--ul-mr);
+		}
+
+		.post-content-module>ol {
+			margin-left: var(--ol-ml);
+			margin-right: var(--ol-mr);
+		}
+
+		/* hanging variant zeroes margins without repeating selectors */
+		.hanging {
+			--ul-ml: 0;
+			--ul-mr: 0;
+			--ol-ml: 0;
+			--ol-mr: 0;
+		}
+	}
+
+	.post-content p+hr,
+	.post-content ol+hr,
+	.post-content ul+hr {
+		margin-top: 0;
+	}
+}
+
+@media (min-width: 1200px) {
+	.post-content {
+		--group-mb: 2.25rem;
+		/* 27/@px */
+		--hr-mt: 3rem;
+		/* 36/@px */
+
+		.delta {
+
+			p,
+			.post-content-module>ol,
+			.post-content-module>ul,
+			.post-content hr,
+			.wp-caption,
+			.video-wrapper {
+				margin-bottom: 3.75rem;
+			}
+
+			/* 45/@px */
+		}
+	}
+
+	.post-content p+hr,
+	.post-content ol+hr,
+	.post-content ul+hr {
+		margin-top: 0;
+	}
+}
+
+.post-content ol ol,
+.post-content ol ul,
+.post-content ul ol,
+.post-content ul ul {
+	margin-bottom: 0;
+}
+
+.post-content ol>li>ul+p {
+	padding-top: 1.75rem;
+}
+
+/* 21/@px */
+.post-content ul>li {
+	position: relative;
+}
+
+.post-content ol>li,
+.post-content ul>li {
+	margin-bottom: 1rem;
+}
+
+
+/* ============================================================
+  Post Content Images
+   ============================================================ */
+
+$negmargin: 0rem;
+
+.alignleft,
+.alignright,
+.aligncenter,
+.aligncenter img,
+.alignleft img,
+.alignright img {
+	display: block;
+	margin-left: auto;
+	margin-right: auto;
+	margin-bottom: 2.5rem;
+	/* 30/@px */
+}
+
+@media (min-width: 1024px) {
+
+	.alignleft,
+	.alignright,
+	.aligncenter,
+	.aligncenter img,
+	.alignleft img,
+	.alignright img {
+		margin-bottom: 2.5rem;
+	}
+}
+
+.wp-caption,
+.wp-caption img {
+	width: auto !important;
+	height: auto !important;
+	max-width: 100% !important;
+	text-align: center;
+}
+
+.wp-caption img {
+	margin-bottom: 0;
+}
+
+.wp-caption-text {
+	padding: .8333rem 0 0;
+	/* 10/@px */
+	line-height: 1.25rem;
+	/* 15/@px */
+	text-align: left;
+	display: block;
+	margin: 0 auto;
+	max-width: 100% !important;
+}
+
+.wp-caption br {
+	display: none;
+}
+
+.full-bleed .wp-caption-text,
+.post-content-slider .wp-caption-text {
+	padding-top: .8333rem;
+}
+
+/* 10/@px */
+
+.wp-caption-text:empty {
+	height: 0;
+	padding: 0;
+	padding-bottom: 2.5rem;
+}
+
+/* 30/@px */
+img.size-full {
+	margin-top: 2.5rem;
+}
+
+/* 30/@px */
+
+.wp-caption img.size-full,
+img.size-full.alignleft,
+img.size-full.alignright {
+	margin-top: 0;
+}
+
+@media (min-width: 768px) {
+
+	.alignleft,
+	.wp-caption.alignleft {
+		float: left;
+		margin: 0 2.5rem 2.5rem 0;
+	}
+
+	/* 30/@px */
+	.alignright,
+	.wp-caption.alignright {
+		float: right;
+		margin: 0 0 2.5rem 2.5rem;
+	}
+
+	.wp-caption-text {
+		clear: both;
+	}
+}
+
+@media (min-width: 1024px) {
+
+	img.alignleft,
+	img.alignright {
+		max-width: 25rem;
+	}
+
+	/* 300/@px */
+
+	.alignleft,
+	.wp-caption.alignleft {
+		margin: 0 2.5rem 2.5rem $negmargin;
+	}
+
+	.alignright,
+	.wp-caption.alignright {
+		margin: 0 $negmargin 2.5rem 2.5rem;
+	}
+
+	img.alignleft {
+		margin-left: $negmargin;
+	}
+
+	img.alignright {
+		margin-right: $negmargin;
+	}
+
+	.wp-caption img {
+		margin-left: auto;
+		margin-right: auto;
+	}
+}
+
+
+/* ============================================================
+  Post Content Module Images
+   ============================================================ */
+
+.post-content-slide-img {
+	width: 100%;
+	max-width: 100%;
+	height: auto;
+	margin-bottom: 0 !important;
+}
+
+@media (min-width: 1024px) {
+	.post-content-slide-img {
+		width: 64.5833rem;
+	}
+}
+
+/* 775/@px */
+
+.post-content-module-xtra-wide img {
+	display: block;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+/* ============================================================
+  Post Content Blockquote
+   ============================================================ */
+
+blockquote {
+	padding: 2.5rem 0 0;
+	/* 30/@px */
+	margin: 7.0833rem 0 5.8333rem;
+	/* 85/@px 0 70/@px */
+	color: currentColor;
+	position: relative;
+
+	&:before {
+		border-top: 0.25rem solid currentColor;
+		/* 3/@px */
+		content: '';
+		display: block;
+		width: 50%;
+		position: absolute;
+		top: 0;
+	}
+}
+
+blockquote p:last-child,
+blockquote ul:last-child,
+blockquote ol:last-child {
+	margin-bottom: 0;
+}
+
+blockquote footer,
+blockquote small,
+blockquote .small {
+	display: block;
+	font-size: 1.0833rem;
+	line-height: 1.25rem;
+}
+
+/* 13/@px, 15/@px */
+
+blockquote footer:before,
+blockquote small:before,
+blockquote .small:before {
+	content: '\2014 \00A0';
+}
+
+.blockquote-reverse {
+	padding-right: 1.25rem;
+	padding-left: 0;
+	/* 15/@px */
+	border-right: 0.4167rem solid #eee;
+	border-left: 0;
+	text-align: right;
+	/* 5/@px */
+}
+
+.blockquote-reverse footer:before,
+.blockquote-reverse small:before,
+.blockquote-reverse .small:before {
+	content: '';
+}
+
+.blockquote-reverse footer:after,
+.blockquote-reverse small:after,
+.blockquote-reverse .small:after {
+	content: '\00A0 \2014';
+}
+
+/* ============================================================
+  Post Content Big Pullquote
+   ============================================================ */
+
+.pullquote {
+	margin-top: 3rem;
+	margin-bottom: 3rem;
+	padding-top: 2rem;
+	/* 36/@px, 24/@px */
+	border-top: 0.25rem solid currentColor;
+	border-bottom: 0.0833rem solid currentColor;
+	/* 3/@px, 1/@px */
+}
+
+.pullquote p {
+	font-size: 1.8333rem;
+	color: currentColor;
+	line-height: 2.25rem;
+}
+
+/* 22/@px, 27/@px */
+.pullquote p:last-child {
+	margin-bottom: 2rem;
+}
+
+/* 24/@px */
+
+@media (min-width: 768px) {
+	.pullquote {
+		margin-top: 3.5rem;
+		margin-bottom: 3.5rem;
+	}
+
+	/* 42/@px */
+	.pullquote p {
+		font-size: 2.25rem;
+		line-height: 2.5rem;
+	}
+
+	/* 27/@px, 30/@px */
+}
+
+/* ============================================================
+  Flickity Slide Show
+   ============================================================ */
+
+.flickity-prev-next-button {
+	position: absolute;
+	top: 50%;
+	width: 2.5rem;
+	height: 2.5rem;
+	margin-top: -1.25rem;
+	/* 30/@px, -15/@px */
+	border-radius: 50%;
+	background: rgba(0, 0, 0, 0);
+	border: 0.1667rem solid currentColor;
+	/* 2/@px */
+	transition: opacity .1s ease;
+	opacity: .8;
+	transform: translateY(-50%);
+}
+
+.flickity-prev-next-button:after {
+	font-family: 'me';
+	width: 2.1667rem;
+	height: 2.1667rem;
+	line-height: 2.1667rem;
+	/* 26/@px */
+	display: block;
+	color: currentColor;
+	font-size: 1.3333rem;
+	/* 16/@px */
+	text-align: center;
+	position: relative;
+}
+
+.flickity-prev-next-button svg {
+	display: none;
+}
+
+@media (min-width: 1024px) {
+	.flickity-prev-next-button {
+		width: 3.1667rem;
+		height: 3.1667rem;
+		margin-top: -1.5833rem;
+		/* 38/@px, -19/@px */
+	}
+
+	.flickity-prev-next-button:after {
+		width: 2.8333rem;
+		height: 2.8333rem;
+		line-height: 3rem;
+		/* 34/@px, 36/@px */
+		font-size: 1.4167rem;
+		/* 17/@px */
+	}
+}
+
+.flickity-prev-next-button:hover {
+	opacity: 1;
+}
+
+.flickity-prev-next-button:disabled {
+	opacity: .1;
+}
+
+/* ============================================================
+  Accordion
+   ============================================================ */
+
+.acc-tog {
+	display: block;
+	width: 100%;
+	text-align: left;
+	position: relative;
+
+	&:after {
+		transition: all .2s ease;
+		content: '+';
+		position: absolute;
+		right: 0;
+		font-size: 2.5rem;
+		/* 30/@px */
+		height: 1em;
+		width: 1em;
+		line-height: 1em;
+		text-align: center;
+		top: 50%;
+		font-family: 'me';
+		margin-top: -.5em;
+		transform: rotate(45deg);
+		transform-origin: 50% 50%;
+	}
+
+	&.collapsed:after {
+		transform: rotate(0deg);
+		content: '+';
+	}
+}
+
+.module-video:after {
+	/* content: @icon-play; */
+	font-family: 'me';
+	height: 6rem;
+	width: 6rem;
+	text-align: center;
+	line-height: 6rem;
+	/* 72/@px */
+	z-index: 10;
+	font-size: 6rem;
+	color: #fff;
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	opacity: .5;
+	transition: opacity .2s;
+	transform: translate(-50%, -50%);
+}
+
+.module-video:hover:after {
+	opacity: 1;
+}
+
+/* extra padding-right for accordion triggers (if needed by markup) */
+.acc-tog {
+	padding-right: 2.5rem;
+}
+
+/* 30/@px */

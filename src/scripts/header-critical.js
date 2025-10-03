@@ -1312,9 +1312,3 @@ loadLozad();
 // loadjs([hwJsPlugDir + 'cssua.js'], 'cssua');
 
 
-// loadjs.ready('videojs', function() {
-// 	loadjs([hwJsDir + 'hw-cfstream.js'], 'hw-cfstream');			
-// });
-
-// loadjs(['https://unpkg.com/video.js@8.22.0/dist/video-js.min.css'], 'videojscss');
-// loadjs(['https://unpkg.com/video.js@8.22.0/dist/video.min.js'], 'videojs', {async: false});

@@ -10,6 +10,8 @@ import navCollapseUrl from "@/scripts/nav-collapse.js?url";
 import flickityUrl from "@/scripts/plugins/flickity.js?url";
 import themeUrl from "@/scripts/theme.js?url";
 import flickitysUrl from "@/scripts/flickitys.js?url";
+import cfstreamUrl from "@/scripts/hw-cfstream.js?url";
+
 
 // Critical CSS
 import "../styles/global.scss";
@@ -293,6 +295,16 @@ const pageTitle = title
         --map1-url: var(--map1Url);
       }
     </style>
+
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/video.js@8.22.0/dist/video-js.min.css"
+    />
+    <script
+      type="module"
+      src="https://unpkg.com/video.js@8.22.0/dist/video.min.js"
+    ></script>
+    <script type="module" src={cfstreamUrl}></script>
 
     <!-- Feature scripts that can wait until after content -->
   </body>

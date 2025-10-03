@@ -7,20 +7,24 @@ import { getEnv, toBase64 } from "../env.ts"; // path is one dir up
 
 export type PullFrom = {
   objectType: "post" | "term";
-  objectId: number;
-  taxonomy?: string;     // required for term when objectType === "term"
-  field?: string;        // defaults to "flex_text"
-  selector?: string;     // e.g. "#why-clearview" (server can pre-filter)
-  rowIndex?: number;     // e.g. 3 -> extract element with class "rowindex-3"
+  objectId?: number;         // for terms this can be omitted if you provide objectSlug
+  objectSlug?: string;       // when objectType === "term", resolve id via slug if needed
+  taxonomy?: string;         // required for term when objectType === "term"
+  field?: string;            // defaults to "flex_text"
+  selector?: string;         // e.g. "#why-clearview" (server can pre-filter)
+  rowIndex?: number;         // e.g. 3 -> extract .rowindex-3
+
+  /** NEW: if explicit pull and no selector, slice by module class (e.g. "logo_slider") */
+  moduleClass?: string;
 };
 
 export type FetchFlexResp = {
-  html: string;          // final HTML
-  raw?: any;             // raw JSON (optional debug)
-  status?: number;       // HTTP status code on error
-  url?: string;          // request URL
-  error?: string;        // thrown error message (if thrown)
-  peek?: string;         // first 200 chars of error body / response text
+  html: string;
+  raw?: any;
+  status?: number;
+  url?: string;
+  error?: string;
+  peek?: string;
 };
 
 const WP_BASE = import.meta.env.WP_BASE_URL || "";
@@ -55,10 +59,7 @@ function mapKnownClassesInHtml(html: string): string {
 }
 
 /* -------------------------------------------------------
- * Image attribute fixups:
- * - data-src → src, data-srcset → srcset
- * - Always add loading="lazy" + async attribute
- * - If data-postload OR class "critical" → fetchpriority="high"
+ * Image attribute fixups
  * ------------------------------------------------------- */
 function fixImagesInHtml(html: string): string {
   if (!html) return html;
@@ -126,8 +127,6 @@ function stripRedundantFlexWrappers(html: string): string {
 }
 
 /* ---------------- Image URL rewrite to local proxy ---------------- */
-
-// Build a srcset string by mapping each URL
 function mapSrcset(srcset: string, mapUrl: (u: string) => string): string {
   return srcset
     .split(',')
@@ -138,7 +137,6 @@ function mapSrcset(srcset: string, mapUrl: (u: string) => string): string {
     .join(', ');
 }
 
-// Rewrite any <img src/srcset> that points to the WP host to /api/img?u=<encoded>
 function rewriteImagesToProxy(html: string, wpHost: string): string {
   if (!html || !wpHost) return html;
   const $ = cheerio.load(html, { decodeEntities: false });
@@ -156,11 +154,9 @@ function rewriteImagesToProxy(html: string, wpHost: string): string {
   $("img").each((_, el) => {
     const $img = $(el);
 
-    // src or data-src
     const src = $img.attr("src") || $img.attr("data-src");
     if (src) $img.attr("src", mapUrl(src));
 
-    // srcset or data-srcset
     const ss = $img.attr("srcset") || $img.attr("data-srcset");
     if (ss) $img.attr("srcset", mapSrcset(ss, mapUrl));
   });
@@ -192,6 +188,47 @@ export function extractByRowIndex(html: string, n: number): string {
   }
 }
 
+/** NEW: Slice first module block by module class name (e.g. "logo_slider" -> ".logo_slider-module") */
+export function extractByModuleClass(html: string, moduleClass: string): string {
+  if (!html || !moduleClass) return "";
+  try {
+    const $ = cheerio.load(html, { decodeEntities: false });
+
+    // Primary convention: .<name>-module
+    let $el = $(`.${moduleClass}-module`).first();
+
+    // Tolerant variants in case of underscores or missing suffix
+    if (!$el.length) $el = $(`.${moduleClass}_module`).first();
+    if (!$el.length) $el = $(`.${moduleClass}`).first();
+
+    return $el.length ? $.html($el) : "";
+  } catch {
+    return "";
+  }
+}
+
+/* ---------------- Internals: resolve IDs by slug ---------------- */
+
+async function resolveTermIdBySlug(taxonomy: string, slug: string): Promise<number | null> {
+  if (!WP_BASE || !taxonomy || !slug) return null;
+  const url = `${WP_BASE}/wp-json/wp/v2/${encodeURIComponent(taxonomy)}?slug=${encodeURIComponent(slug)}`;
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json", ...authHeaders() } });
+    if (!res.ok) {
+      const peek = await res.text().catch(() => "");
+      console.error("[pullFlexText] term lookup HTTP", res.status, url, peek.slice(0, 200));
+      return null;
+    }
+    const arr = await res.json();
+    const id = Array.isArray(arr) && arr[0]?.id ? Number(arr[0].id) : null;
+    if (!id) console.warn("[pullFlexText] term not found for slug", { taxonomy, slug, url });
+    return id;
+  } catch (e: any) {
+    console.error("[pullFlexText] term lookup error", e?.message || String(e), { url });
+    return null;
+  }
+}
+
 /* ---------------- Public API ---------------- */
 
 export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
@@ -202,12 +239,34 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
   }
 
   const field = pf.field || "flex_text";
+
+  // --- Taxonomy validation + optional term-id resolution by slug ---
+  if (pf.objectType === "term") {
+    if (!pf.taxonomy) {
+      const msg = "[pullFlexText] taxonomy is required when objectType==='term'";
+      console.error(msg, pf);
+      return { html: "", error: msg };
+    }
+    if (!pf.objectId && pf.objectSlug) {
+      const maybe = await resolveTermIdBySlug(pf.taxonomy, pf.objectSlug);
+      if (maybe) pf.objectId = maybe;
+    }
+    if (!pf.objectId) {
+      const msg = "[pullFlexText] objectId (term id) is required for term pulls (or provide objectSlug to resolve it)";
+      console.error(msg, pf);
+      return { html: "", error: msg };
+    }
+  }
+
   const qs = new URLSearchParams({
     object_type: pf.objectType,
-    object_id: String(pf.objectId),
+    object_id: String(pf.objectId!),
     field,
   });
-  if (pf.objectType === "term" && pf.taxonomy) qs.set("taxonomy", pf.taxonomy);
+
+  if (pf.objectType === "term" && pf.taxonomy) {
+    qs.set("taxonomy", pf.taxonomy);
+  }
   if (pf.selector) qs.set("selector", pf.selector);
 
   const url = `${WP_BASE}/wp-json/cv/v1/acf-flex-text?${qs.toString()}`;
@@ -235,28 +294,64 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
       return { html: "", raw: data, url, error: msg };
     }
 
-    if (pf.selector && !data?.selected?.html) {
-      const bySel = extractBySelector(html, pf.selector);
-      if (bySel) html = bySel;
+    // --- Slicing priority ---
+    // 1) If selector provided, try server-side selected.html first, else client slice by selector.
+    let usedSelector = false;
+    if (pf.selector) {
+      usedSelector = true;
+      if (!data?.selected?.html) {
+        const bySel = extractBySelector(html, pf.selector);
+        if (bySel) html = bySel;
+      } else {
+        html = data.selected.html;
+      }
     }
 
-    if (Number.isFinite(pf.rowIndex)) {
+    // 2) If EXPLICIT pull (caller set moduleClass) and NO selector: slice by module class
+    //    (e.g. moduleClass="logo_slider" -> ".logo_slider-module")
+    let usedModuleClass = false;
+    if (!usedSelector && pf.moduleClass) {
+      const byMod = extractByModuleClass(html, pf.moduleClass);
+      if (byMod) {
+        html = byMod;
+        usedModuleClass = true;
+      }
+    }
+
+    // 3) If rowIndex is provided (non-explicit contexts), slice by row index
+    if (!usedSelector && !usedModuleClass && Number.isFinite(pf.rowIndex)) {
       const byRow = extractByRowIndex(html, pf.rowIndex as number);
       if (byRow) html = byRow;
     }
 
+    // HTML post-processing
     html = stripRedundantFlexWrappers(html);
     html = mapKnownClassesInHtml(html);
     html = fixImagesInHtml(html);
 
-    // --- NEW: rewrite WP-hosted images to same-origin proxy (/api/img)
+    // Rewrite WP-hosted images to same-origin proxy (/api/img)
     let wpHost = "";
     try { wpHost = new URL(WP_BASE).hostname; } catch {}
     if (wpHost) {
       html = rewriteImagesToProxy(html, wpHost);
     }
 
-    return { html, raw: data, url };
+    // Add light debug payload in raw for on-page panels
+    const debug = {
+      url,
+      objectType: pf.objectType,
+      objectId: pf.objectId ?? null,
+      taxonomy: pf.taxonomy ?? null,
+      selector: pf.selector ?? null,
+      moduleClass: pf.moduleClass ?? null,
+      rowIndex: pf.rowIndex ?? null,
+      usedSelector,
+      usedModuleClass,
+      usedRowIndex: !usedSelector && !usedModuleClass && Number.isFinite(pf.rowIndex),
+      htmlLen: html.length,
+    };
+
+    return { html, raw: { ...(data ?? {}), __debug: debug }, url };
   } catch (err: any) {
     const msg = err?.message || String(err);
     console.error("[pullFlexText] fetch error", msg, { url });

@@ -1,0 +1,192 @@
+---
+import { fetchFlexText } from "../../lib/wp/pullFlexText";
+
+// Log all incoming props on the server
+console.log("[project_slider] Astro.props:", Astro.props);
+
+// Put the type before usage
+export type PullFrom = {
+  objectType: "post" | "term";
+  objectId: number;
+  taxonomy?: string;   // required when objectType === "term"
+  field?: string;      // defaults to "flex_text"
+  selector?: string;   // e.g. "#why-clearview"
+  rowIndex?: number;
+};
+
+interface Props {
+  postId?: number | null;
+  currentPost?: any;
+  pull_from?: false | PullFrom; // optional overrides coming from the template
+  section_id?: string;
+  wrapperClasses?: string;
+  geo_keyword?: string;
+  rowIndex?: number;
+}
+
+const {
+  postId = null,
+  currentPost = null, // not used here, but available if needed
+  pull_from = false,
+  section_id = "",
+  wrapperClasses = "",
+  geo_keyword = "",
+} = Astro.props as Props;
+
+let pulledHtml = "";
+let pullDebug: any = null;
+
+if (postId) {
+  const basePull: PullFrom = {
+    objectType: "post",
+    objectId: postId,
+    field: "flex_text",
+    rowIndex: Astro.props.rowIndex,
+  };
+
+  const pulled = await fetchFlexText(basePull);
+  pulledHtml = pulled?.html || "";
+  pullDebug = pulled || {};
+
+  // Log the whole thing to the server console too
+  console.log("[project_slider] pull result:", {
+    status: pulled?.status,
+    url: pulled?.url,
+    error: pulled?.error,
+    peek: pulled?.peek,
+    htmlLen: pulledHtml.length,
+  });
+}
+---
+
+{pulledHtml ? (
+  <Fragment set:html={pulledHtml} />
+) : (
+  <section id={section_id} class={wrapperClasses} data-geo={geo_keyword}>
+    <div>No pulled HTML – render local here.</div>
+
+    {/* Visible debug panel for live Netlify troubleshooting */}
+    <div style="margin-top:1rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
+      <div><strong>WP_BASE_URL:</strong> {import.meta.env.WP_BASE_URL || "(not set)"}</div>
+      <div><strong>postId:</strong> {String(postId)}</div>
+      <div><strong>rowIndex:</strong> {String(Astro.props.rowIndex ?? "")}</div>
+      {pullDebug && (
+        <details open>
+          <summary><strong>Pull Debug</strong></summary>
+          <div><strong>status:</strong> {String(pullDebug.status ?? "")}</div>
+          <div><strong>url:</strong> {String(pullDebug.url ?? "")}</div>
+          <div><strong>error:</strong> {String(pullDebug.error ?? "")}</div>
+          <div><strong>peek:</strong> {String(pullDebug.peek ?? "").slice(0, 300)}</div>
+          <div><strong>raw keys:</strong> {pullDebug.raw ? Object.keys(pullDebug.raw).join(", ") : "(none)"} </div>
+        </details>
+      )}
+    </div>
+  </section>
+)}
+
+
+<style is:global>
+.txt-img-flex {
+  gap: 5%;
+
+  img {
+    width: 100%;
+    object-fit: cover;
+    max-height: 70vh;
+  }
+
+  &.imgheight-1 img {
+    height: 100%;
+  }
+
+  .hw-vid-player-parent {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+@media (min-width: 1700px) {
+  .txt-img-flex {
+    gap: 10%;
+  }
+}
+
+.txt-img-txt-wrap,
+.txt-img-img-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.txt-img-txt-wrap {
+  max-width: 640px;
+}
+
+.txt-img-heading {
+  font-size: 3.75rem;
+  letter-spacing: -0.05em;
+  font-weight: 450;
+}
+
+.img-align-left {
+  flex-direction: row-reverse;
+}
+
+.img-align-left .txt-img-img-wrap {
+  .vid-video-outer,
+  img {
+    border-top-right-radius: 1rem;
+    border-bottom-right-radius: 1rem;
+  }
+
+  margin-left: calc((var(--containerPadding) * -1) - 1px);
+}
+
+.img-align-right .txt-img-img-wrap {
+  .vid-video-outer,
+  img {
+    border-top-left-radius: 1rem;
+    border-bottom-left-radius: 1rem;
+  }
+
+  margin-right: calc((var(--containerPadding) * -1) - 1px);
+}
+
+.img60-1 {
+  .txt-img-txt-wrap {
+    min-width: 380px;
+    max-width: 380px;
+  }
+  .txt-img-img-wrap {
+    max-width: none;
+  }
+
+  .theta {
+    font-size: 1.4rem;
+    line-height: 2rem;
+  }
+}
+
+.txt-img-flex.img60- {
+  .theta {
+    font-size: 1.4rem;
+    line-height: 2rem;
+  }
+}
+
+@media (min-width: 1200px) {
+  .txt-img-flex.img60- {
+    .theta {
+      font-size: 1.55rem;
+      line-height: 2.25rem;
+    }
+  }
+}
+
+@media (min-width: 1480px) {
+  .txt-img-flex.img60-.valign-center-1 {
+    align-items: center;
+  }
+}
+
+</style>

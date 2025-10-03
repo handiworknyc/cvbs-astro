@@ -24,44 +24,135 @@ const authHeaders = WP_AUTH_BASIC
   ? { Authorization: `Basic ${toBase64(WP_AUTH_BASIC)}` }
   : {};
 
-// Debug state for fetch of current post
+// -----------------------------
+// Debug + fetch state (page)
+// -----------------------------
 let currentPost: any = null;
 let fetchStatus: number | null = null;
 let fetchUrl = "";
 let fetchPeek = "";
 let fetchError: string | null = null;
 
-if (WP_BASE && slug) {
-  try {
-    fetchUrl = `${WP_BASE}/wp-json/wp/v2/pages?slug=${encodeURIComponent(slug)}`;
-    const res = await fetch(fetchUrl, { headers: { Accept: "application/json", ...authHeaders } });
-    fetchStatus = res.status;
+// -----------------------------
+// Debug + fetch state (term)
+// -----------------------------
+let currentTerm: any = null;
+let termFetchStatus: number | null = null;
+let termFetchUrl = "";
+let termFetchPeek = "";
+let termFetchError: string | null = null;
 
-    if (!res.ok) {
-      fetchPeek = (await res.text().catch(() => ""))?.slice(0, 300) || "";
-      console.error("[layoutrenderer] HTTP", fetchStatus, fetchUrl, fetchPeek);
-    } else {
-      const posts = await res.json();
-      currentPost = posts?.[0] ?? null;
-      console.log("[layoutrenderer] fetched", {
-        slug,
-        url: fetchUrl,
-        status: fetchStatus,
-        foundId: currentPost?.id ?? null,
-      });
-    }
-  } catch (e: any) {
-    fetchError = e?.message || String(e);
-    console.error("[layoutrenderer] fetch error", fetchError, { url: fetchUrl });
-  }
-} else {
-  if (!WP_BASE) console.error("[layoutrenderer] Missing WP_BASE_URL");
-  if (!slug) console.warn("[layoutrenderer] No slug param present");
+if (!WP_BASE) {
+  console.error("[layoutrenderer] Missing WP_BASE_URL");
+}
+if (!slug) {
+  console.warn("[layoutrenderer] No slug param present");
 }
 
-const postId = currentPost?.id ?? null;
+async function fetchJson(url: string) {
+  const res = await fetch(url, { headers: { Accept: "application/json", ...authHeaders } });
+  const status = res.status;
+  if (!res.ok) {
+    const text = (await res.text().catch(() => ""))?.slice(0, 300) || "";
+    return { ok: false, status, peek: text, json: null as any };
+  }
+  const json = await res.json();
+  return { ok: true, status, peek: "", json };
+}
 
-// Prefer WP layouts when present
+// If we have a taxonomy context, resolve the *term* by slug.
+// Otherwise, resolve the *page* by slug (original behavior).
+if (WP_BASE && slug) {
+  if (taxContext) {
+    // --- Taxonomy mode: fetch term directly using provided taxContext ---
+    try {
+      termFetchUrl = `${WP_BASE}/wp-json/wp/v2/${encodeURIComponent(taxContext)}?slug=${encodeURIComponent(slug)}`;
+      const r = await fetchJson(termFetchUrl);
+      termFetchStatus = r.status;
+      if (!r.ok) {
+        termFetchPeek = r.peek;
+        console.error("[layoutrenderer] TERM HTTP", termFetchStatus, termFetchUrl, termFetchPeek);
+      } else {
+        const terms = Array.isArray(r.json) ? r.json : [];
+        currentTerm = terms?.[0] ?? null;
+        console.log("[layoutrenderer] fetched TERM", {
+          taxContext,
+          slug,
+          url: termFetchUrl,
+          status: termFetchStatus,
+          foundId: currentTerm?.id ?? null,
+        });
+      }
+    } catch (e: any) {
+      termFetchError = e?.message || String(e);
+      console.error("[layoutrenderer] TERM fetch error", termFetchError, { url: termFetchUrl });
+    }
+  } else {
+    // --- No taxContext: try page first ---
+    try {
+      fetchUrl = `${WP_BASE}/wp-json/wp/v2/pages?slug=${encodeURIComponent(slug)}`;
+      const r = await fetchJson(fetchUrl);
+      fetchStatus = r.status;
+      if (r.ok) {
+        const posts = Array.isArray(r.json) ? r.json : [];
+        currentPost = posts?.[0] ?? null;
+        console.log("[layoutrenderer] fetched PAGE", {
+          slug,
+          url: fetchUrl,
+          status: fetchStatus,
+          foundId: currentPost?.id ?? null,
+        });
+      } else {
+        fetchPeek = r.peek;
+        console.error("[layoutrenderer] PAGE HTTP", fetchStatus, fetchUrl, fetchPeek);
+      }
+    } catch (e: any) {
+      fetchError = e?.message || String(e);
+      console.error("[layoutrenderer] PAGE fetch error", fetchError, { url: fetchUrl });
+    }
+
+    // --- If not a page (or page has no match), probe known taxonomies for a term with this slug ---
+    if (!currentPost) {
+      for (const candTax of TAX_CANDIDATES) {
+        try {
+          const url = `${WP_BASE}/wp-json/wp/v2/${encodeURIComponent(candTax)}?slug=${encodeURIComponent(slug)}`;
+          const r = await fetchJson(url);
+          // keep debug of each probe
+          console.log("[layoutrenderer] probe TERM", { candTax, status: r.status, url });
+
+          if (r.ok) {
+            const arr = Array.isArray(r.json) ? r.json : [];
+            if (arr[0]?.id) {
+              currentTerm = arr[0];
+              termFetchUrl = url;
+              termFetchStatus = r.status;
+              // set taxContext dynamically so children receive taxonomy
+              // (WP returns taxonomy in the term object for core and custom taxonomies)
+              // if not present, fall back to candidate
+              // @ts-ignore
+              taxContext = typeof currentTerm?.taxonomy === "string" ? currentTerm.taxonomy : candTax;
+
+              console.log("[layoutrenderer] detected TERM", {
+                slug,
+                taxonomy: taxContext,
+                foundId: currentTerm.id,
+              });
+              break; // stop at first match
+            }
+          }
+        } catch (e: any) {
+          console.error("[layoutrenderer] probe TERM error", e?.message || String(e));
+        }
+      }
+    }
+  }
+}
+
+
+const postId = currentPost?.id ?? null;
+const termId = currentTerm?.id ?? null;
+
+// Prefer WP layouts when present (page ACF) — taxonomy pages may not have these.
 const fetchedLayouts = currentPost?.acf?.layouts ?? null;
 const effectiveLayouts = Array.isArray(fetchedLayouts) && fetchedLayouts.length > 0
   ? fetchedLayouts
@@ -133,20 +224,42 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
     <p>No content yet.</p>
   </div>
 )}
-
-{/* Visible debug panel if the REST fetch failed or returned no post */}
-{(slug && (!postId || (fetchStatus && fetchStatus >= 400) || fetchError)) && (
+<!-- 
+{/* Visible debug panel:
+    - If page mode and page fetch failed
+    - If taxonomy mode and term fetch failed
+*/}
+{(slug && (
+  (!taxContext && (!postId || (fetchStatus && fetchStatus >= 400) || fetchError)) ||
+  (taxContext && (!termId || (termFetchStatus && termFetchStatus >= 400) || termFetchError))
+)) && (
   <div style="margin:1rem auto; max-width:64rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
     <div><strong>WP_BASE_URL:</strong> {WP_BASE || "(not set)"} </div>
     <div><strong>slug:</strong> {slug}</div>
-    <div><strong>request:</strong> {fetchUrl}</div>
-    <div><strong>status:</strong> {String(fetchStatus ?? "")}</div>
-    <div><strong>error:</strong> {String(fetchError ?? "")}</div>
-    <div><strong>peek:</strong> {fetchPeek}</div>
-    <div><strong>postId:</strong> {String(postId)}</div>
+    <div><strong>mode:</strong> {taxContext ? `taxonomy:${taxContext}` : "page"} </div>
+
+    {!taxContext ? (
+      <>
+        <div><strong>request (page):</strong> {fetchUrl}</div>
+        <div><strong>status:</strong> {String(fetchStatus ?? "")}</div>
+        <div><strong>error:</strong> {String(fetchError ?? "")}</div>
+        <div><strong>peek:</strong> {fetchPeek}</div>
+        <div><strong>postId:</strong> {String(postId)}</div>
+      </>
+    ) : (
+      <>
+        <div><strong>request (term):</strong> {termFetchUrl}</div>
+        <div><strong>status:</strong> {String(termFetchStatus ?? "")}</div>
+        <div><strong>error:</strong> {String(termFetchError ?? "")}</div>
+        <div><strong>peek:</strong> {termFetchPeek}</div>
+        <div><strong>termId:</strong> {String(termId)}</div>
+        <div><strong>taxonomy:</strong> {taxContext}</div>
+      </>
+    )}
+
     <div><strong>auth:</strong> {WP_AUTH_BASIC ? "(Basic auth supplied)" : "(no auth)"} </div>
   </div>
-)}
+)} -->
 
 {rows.map((row, idx) => {
   const Comp = resolveComponent(row.name);
@@ -158,10 +271,35 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
   const bgWrapClass = computeBgWrapClass(row, rowindex);
   const innerWrapClasses = [
     "flex-bg-inner",
-    "z-100",
+    "z-[100]",
     "pr",
     ...(row.meta?.ofh ? ["ofh"] : []),
   ].join(" ");
+
+  // Pass *both* page and taxonomy context into every sub-layout.
+  // Components that support pull-through can decide which to use:
+  //  - For pages:    use postId/currentPost
+  //  - For taxonomy: use termId + taxonomy (taxContext)
+const termId = currentTerm?.id ?? null;
+const postId = currentPost?.id ?? null;
+
+const commonCtx = {
+  postId,
+  currentPost,
+  termId,
+  taxonomy: (taxContext || (typeof currentTerm?.taxonomy === "string" ? currentTerm.taxonomy : null)) as string | null,
+  currentTerm,
+  rowIndex: rowindex,
+};
+
+console.log("[layoutrenderer] term context", {
+  taxContext,
+  slug,
+  resolvedTermId: termId,
+  termFetchUrl,
+  termFetchStatus,
+  currentTermTaxonomy: currentTerm?.taxonomy,
+});
 
   return (
     <section {...idAttr} class={sectionClass}>
@@ -171,8 +309,7 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
         <div class={bgWrapClass}>
           <div class={innerWrapClasses}>
             {Comp ? (
-              /* Pass postId, currentPost, rowIndex into every sub-layout */
-              <Comp {...row.data} postId={postId} currentPost={currentPost} rowIndex={rowindex} />
+              <Comp {...row.data} {...commonCtx} />
             ) : (
               <div class="mx-auto my-8 max-w-5xl rounded-xl border p-4">
                 <p class="font-semibold">
@@ -195,7 +332,7 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
       ) : (
         <>
           {Comp ? (
-            <Comp {...row.data} postId={postId} currentPost={currentPost} rowIndex={rowindex} />
+            <Comp {...row.data} {...commonCtx} />
           ) : (
             <div class="mx-auto my-8 max-w-5xl rounded-xl border p-4">
               <p class="font-semibold">

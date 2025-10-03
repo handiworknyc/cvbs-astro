@@ -18,7 +18,7 @@ type CardImage = {
   id?: number;
   src?: string;
   url?: string;
-  sizes?: Record<string, string>; // expects intch_xl/intch_lg/intch_med/intch_sm if present
+  sizes?: Record<string, string>;
   width?: number;
   height?: number;
   alt?: string;
@@ -42,20 +42,20 @@ interface Props {
 
   // Section/meta
   section_title?: string;
-  section_text?: string; // HTML or plain text with \n
+  section_text?: string;
 
   // Visual config
   layout?: number | string;   // layout==4 triggers "small image" path like PHP
-  bg_img_cards?: string;      // used in class: bg-card-<value>
+  bg_img_cards?: string | number | boolean | null | undefined; // used in class: bg-card-<value>
 
   // Container class
   containerClass?: string;
 
   // SmartImage plumbing (optional pass-throughs)
-  smartImageSizes?: string;   // sizes attribute for SmartImage
+  smartImageSizes?: string;
   cdnHost?: string;
   wpHost?: string;
-  critical?: boolean;         // if any image should be eager/high-pri
+  critical?: boolean;
 }
 
 const {
@@ -65,7 +65,7 @@ const {
   section_title = "",
   section_text = "",
   layout = 1,
-  bg_img_cards = "default",
+  bg_img_cards = "", // <- default blank so "bg-card-" (no suffix) unless set
   containerClass = "hw-contain pr ofh",
   smartImageSizes = "(max-width: 1200px) 40vw, 100vw",
   cdnHost,
@@ -75,7 +75,6 @@ const {
 
 /* ---------------- helpers ---------------- */
 
-/** Decode HTML entities, including numeric (decimal & hex). Do a few passes to handle double-escaped strings. */
 function decodeEntitiesDeep(s = "") {
   let out = s;
   for (let i = 0; i < 4; i++) {
@@ -93,19 +92,42 @@ function decodeEntitiesDeep(s = "") {
   return out;
 }
 
-/** Ensure a string is safe HTML: decode entities or convert \n to <br> if it's plain text. */
 function ensureHtml(s = "") {
   if (!s) return "";
-  // First decode (handles &amp;lt;br/&amp;gt; → <br/>)
   let decoded = decodeEntitiesDeep(s);
-
-  // If there are no tags and we have newlines, convert those to <br />
   const hasTags = /<\/?[a-z][\s\S]*>/i.test(decoded);
   if (!hasTags && decoded.includes("\n")) {
     decoded = decoded.replace(/\r?\n/g, "<br />");
   }
   return decoded;
 }
+
+/** Decide the suffix for `bg-card-<suffix>`:
+ * - "default" → "1"
+ * - "", false, "0", "none" → "" (so class becomes "bg-card-")
+ * - any other truthy value → its string form
+ */
+function bgCardSuffix(v: any): string {
+  // Explicit boolean handling
+  if (v === true) return "1";
+  if (v === false || v == null) return "";
+
+  const s = String(v).trim().toLowerCase();
+
+  // Common “blank” cases
+  if (!s || s === "0" || s === "none" || s === "false") return "";
+
+  // Treat "default" as 1
+  if (s === "default") return "1";
+
+  // Numbers stay numbers (e.g., 2 -> "2")
+  const n = Number(s);
+  if (!Number.isNaN(n)) return String(n);
+
+  // Anything else becomes its string
+  return String(v).trim();
+}
+
 
 /* ---------------- Pull-through helpers ---------------- */
 
@@ -162,8 +184,8 @@ function applyOverrides(html: string, title?: string, textHtml?: string): string
 
 const isLayout4 = String(layout) === "4";
 const flexClass = isLayout4 ? "flex-wrap-1520" : "flex-wrap";
+const bgClass = `bg-card-${bgCardSuffix(bg_img_cards)}`;
 
-/** Build SmartImage images map from our CardImage.sizes */
 function toSmartImagesMap(img: CardImage) {
   const sizes = img.sizes || {};
   const xl = sizes.intch_xl || sizes.intch_lg || img.src || img.url;
@@ -224,55 +246,55 @@ const pulled =
       />
     )}
     <div class='pr ofh'>
-        <div
-        class={`img-card-outer pr bg-card-${bg_img_cards} equal-height-cells layout-${layout} hw-slides ${flexClass} tal img-card-slider`}
+      <div
+        class={`img-card-outer pr ${bgClass} equal-height-cells layout-${layout} hw-slides ${flexClass} tal img-card-slider`}
         id={`image-cards-${Math.random().toString(36).slice(2, 10)}`}
-        >
+      >
         {cards.map((c) => {
-            const { html: listHtml, count } = renderChecklist(c.checklist2);
-            const { url: btnUrl, html: btnHtml } = buttonBits(c.button);
-            const El = btnUrl ? "a" : "div";
+          const { html: listHtml, count } = renderChecklist(c.checklist2);
+          const { url: btnUrl, html: btnHtml } = buttonBits(c.button);
+          const El = btnUrl ? "a" : "div";
 
-            return (
+          return (
             <El class="img-card-item block" {...(btnUrl ? { href: btnUrl } : {})}>
-                <div class="img-card-inner flex-wrap">
+              <div class="img-card-inner flex-wrap">
                 <div class="img-card-text-wrap mb-4 min-[500px]:pt-[3.5rem] pt-9">
-                    <h3
+                  <h3
                     class="img-card-title ls-5"
                     set:html={ensureHtml(c.title)}
-                    />
+                  />
 
-                    <div class={`img-card-text pb-4 checkcount-${count}`}>
+                  <div class={`img-card-text pb-4 checkcount-${count}`}>
                     {c.text && <div set:html={ensureHtml(c.text)} />}
                     {listHtml && <div set:html={listHtml} />}
-                    </div>
+                  </div>
 
-                    { btnHtml && <Fragment set:html={btnHtml} /> }
+                  { btnHtml && <Fragment set:html={btnHtml} /> }
                 </div>
 
                 <div class="img-card-img-wrap">
-                    {Array.isArray(c.images) && c.images.length > 0 ? (
+                  {Array.isArray(c.images) && c.images.length > 0 ? (
                     isLayout4 ? (
-                        c.images.map((img) => {
+                      c.images.map((img) => {
                         const src = img?.sizes?.intch_sm || img?.src || img?.url || "";
                         if (!src) return null;
                         return (
-                            <img
+                          <img
                             src={src}
                             class="img-card-img"
                             alt={img?.alt ?? ""}
                             loading="lazy"
                             decoding="async"
-                            />
+                          />
                         );
-                        })
+                      })
                     ) : (
-                        c.images.map((img) => {
+                      c.images.map((img) => {
                         const map = toSmartImagesMap(img);
                         const haveAny = map.xl || map.large || map.med || map.small;
                         if (!haveAny) return null;
                         return (
-                            <SmartImage
+                          <SmartImage
                             images={map as any}
                             sizes={smartImageSizes}
                             alt={img?.alt ?? ""}
@@ -281,17 +303,17 @@ const pulled =
                             cdnHost={cdnHost}
                             wpHost={wpHost}
                             fetchpriority={critical ? 'high' : 'low'}
-                            />
+                          />
                         );
-                        })
+                      })
                     )
-                    ) : null}
+                  ) : null}
                 </div>
-                </div>
+              </div>
             </El>
-            );
+          );
         })}
-        </div>
+      </div>
     </div>
   </div>
 )}

@@ -60,6 +60,11 @@ strong {
 	text-shadow: 0 0 1px rgba(0,0,0, .1)
 }
 
+.obj-cover,
+.of-cover {
+    object-fit: cover;
+}
+
 html:not(.ua-safari) {
 	.lilblur {
 		filter: blur(.15px)

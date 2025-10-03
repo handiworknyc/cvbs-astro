@@ -93,6 +93,15 @@ body {
 	letter-spacing: -.025em;
 }
 
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    line-height: 1em;
+}
+
 html,
 body,
 button,
@@ -218,11 +227,39 @@ a.img-card-item .img-card-inner,
 
 
 
+.mt1h {
+    margin-top: 1.5rem;
+}
 
+.mb1 {
+    margin-bottom: 1rem;
+}
 
+.mb2 {
+    margin-bottom: 2rem;
+}
+
+.pb3 {
+    padding-bottom: 3rem;
+}
+.pb6 {
+    padding-bottom: 6rem;
+}
+
+.mt3 {
+    margin-top: 3rem;
+}
+
+.mb3h {
+    margin-bottom: 3.5rem;
+}
 
 .mb4 {
     margin-bottom: 4rem;
+}
+
+.mb5 {
+    margin-bottom: 5rem;
 }
 
 .pb1h {

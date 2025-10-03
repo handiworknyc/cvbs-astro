@@ -2,27 +2,32 @@
 /**
  * src/components/blog.astro
  * Fetch latest posts, optionally filtered by a custom taxonomy term.
- * Strategy:
- *  - If taxonomy provided:
- *      Try GraphQL taxQuery (needs taxonomy registered in WPGraphQL).
- *      If that fails, fallback to REST: /wp-json/wp/v2/posts?{tax}={term_id or slug}&_embed
- *  - Else: plain latest posts via GraphQL.
+ * Accepts taxonomy context in TWO ways:
+ *   A) OLD: taxonomy=[{ taxonomy, term_id, slug, name }]
+ *   B) NEW: taxonomy="service" + termId + currentTerm (and/or termSlug)
+ *
+ * Order when taxonomy is provided:
+ *   1) GraphQL taxQuery by SLUG (if slug present & taxonomy registered in WPGraphQL)
+ *   2) REST fallbacks (posts endpoint) tried in order:
+ *        ?{tax}={term_id}
+ *        ?{tax}[]={term_id}
+ *        ?{tax}={slug}
+ *        ?{tax}[]={slug}
+ * If no taxonomy → plain latest posts via GraphQL.
  */
 
 import BlogPrevItem from "@/components/BlogPrevItem.astro";
-import { fetchAPI } from "@/lib/wp";            // your auth-aware GraphQL fetch
-import { getEnv, toBase64 } from "@/lib/env.ts"; // ← reuse shared helpers
+import { fetchAPI } from "@/lib/wp";
+import { getEnv, toBase64 } from "@/lib/env.ts";
 
-// Prefer server-only env (PUBLIC_* is fine too if you already expose it)
-const WP_BASE = import.meta.env.WP_BASE_URL || import.meta.env.PUBLIC_WP_BASE || "";
+const WP_BASE = import.meta.env.WP_BASE_URL || "";
 
-// Build Basic Auth header (same pattern used elsewhere)
 const WP_AUTH_BASIC = getEnv("WP_AUTH_BASIC") || ""; // "user:pass"
 const authHeaders = WP_AUTH_BASIC
   ? { Authorization: `Basic ${toBase64(WP_AUTH_BASIC)}` }
   : {};
- 
-// Types
+
+// ---------- Types ----------
 type ImageMap = Record<string, string>;
 interface ImageLike { src?: string; alt?: string; sizes?: ImageMap }
 interface PostLike {
@@ -37,26 +42,62 @@ interface PostLike {
 interface TaxTerm { taxonomy: string; term_id: number; name?: string; slug?: string }
 
 interface Props {
-  taxonomy?: TaxTerm[];   // e.g. [{ taxonomy: "service", term_id: 7, name: "Facility Maintenance", slug:"facility-maintenance" }]
+  // OLD shape:
+  taxonomy?: TaxTerm[] | string | null; // allow string too
+  // NEW shape bits:
+  termId?: number | null;
+  currentTerm?: any;       // { id, slug, name, taxonomy, ... } from REST
+  termSlug?: string | null;
+
   idPrefix?: string;
   perPage?: number;
 }
 
 const {
-  taxonomy = [],
+  taxonomy = null,     // can be array OR string OR null
+  termId = null,       // NEW
+  currentTerm = null,  // NEW
+  termSlug = null,     // optional override
+
   idPrefix = "blog-prev-wrap",
   perPage = 6,
 } = Astro.props as Props;
 
-// Pull first taxonomy (if any)
-const tx = Array.isArray(taxonomy) && taxonomy.length ? taxonomy[0] : null;
-const hasTax = !!tx;
-const taxName = tx?.name || "";
-const taxSlug = tx?.slug || "";      // preferred for WPGraphQL/REST by slug
-const taxId   = tx?.term_id ?? null; // REST fallback by id
-const taxKey  = tx?.taxonomy || "";  // e.g. "service"
+// ---------- Normalize incoming taxonomy to a single "tx" object ----------
+function toNumOrNull(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
-// --- GraphQL: latest posts (no filter) ---
+let tx: TaxTerm | null = null;
+if (Array.isArray(taxonomy) && taxonomy.length > 0) {
+  // OLD array shape wins if present
+  const t0 = taxonomy[0] as any;
+  tx = {
+    taxonomy: (t0?.taxonomy ?? "").toString(),
+    term_id: toNumOrNull(t0?.term_id) ?? toNumOrNull(currentTerm?.id) ?? toNumOrNull(termId) ?? 0,
+    slug: (t0?.slug ?? currentTerm?.slug ?? termSlug ?? "").toString(),
+    name: (t0?.name ?? currentTerm?.name ?? "").toString(),
+  };
+} else if (typeof taxonomy === "string" && taxonomy.trim()) {
+  // NEW separate props
+  tx = {
+    taxonomy: taxonomy.trim(),
+    term_id: toNumOrNull(termId) ?? toNumOrNull(currentTerm?.id) ?? 0,
+    slug: (currentTerm?.slug ?? termSlug ?? "").toString(),
+    name: (currentTerm?.name ?? "").toString(),
+  };
+} else {
+  tx = null;
+}
+
+const hasTax = !!(tx && tx.taxonomy && (tx.term_id || tx.slug));
+const taxKey  = tx?.taxonomy ?? "";                    // e.g. "service" (REST base)
+const taxName = tx?.name ?? "";
+const taxSlugNorm = (tx?.slug ?? "").toString();
+const taxIdNorm   = toNumOrNull(tx?.term_id) ?? null;
+
+// ---------- GraphQL queries ----------
 const GQL_LATEST = /* GraphQL */ `
   query BlogLatest($first:Int!) {
     posts(first: $first, where: { orderby: { field: DATE, order: DESC } }) {
@@ -81,7 +122,6 @@ const GQL_LATEST = /* GraphQL */ `
   }
 `;
 
-// --- GraphQL: filtered by custom taxonomy (requires WPGraphQL taxonomy enum) ---
 const GQL_BY_TAX = /* GraphQL */ `
   query PostsByTax($first:Int!, $tax: TaxonomyEnum!, $term: [String]) {
     posts(first: $first, where: {
@@ -111,7 +151,11 @@ const GQL_BY_TAX = /* GraphQL */ `
   }
 `;
 
-// Helper: map GraphQL node → PostLike
+// ---------- Helpers ----------
+function toTaxEnum(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+}
+
 function toPostLike(n: any): PostLike {
   const img = n?.featuredImage?.node;
   const sizes: ImageMap = {};
@@ -132,7 +176,6 @@ function toPostLike(n: any): PostLike {
   };
 }
 
-// Helper: REST _embed → PostLike
 function fromRestPost(p: any): PostLike {
   const media = p?._embedded?.["wp:featuredmedia"]?.[0];
   const src = media?.source_url || null;
@@ -147,101 +190,152 @@ function fromRestPost(p: any): PostLike {
   };
 }
 
-// Try to build a GraphQL taxonomy enum from a slug like "service" -> "SERVICE"
-function toTaxEnum(taxonomy: string): string {
-  return taxonomy.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-}
-
+// ---------- Fetch logic ----------
 let latestPosts: PostLike[] = [];
 
-// Debug holders for REST fallback
-let restUrl = "";
-let restStatus: number | null = null;
-let restPeek = "";
-let restError: string | null = null;
+let mode: "taxonomy" | "plain" = hasTax ? "taxonomy" : "plain";
+let pathUsed: "gql:plain" | "gql:tax" | "rest:id" | "rest:id[]" | "rest:slug" | "rest:slug[]" | "none" = "none";
+let gqlError: string | null = null;
+
+type RestTry = { label: string; url: string; status?: number | null; ok?: boolean | null; peek?: string };
+const restTries: RestTry[] = [];
+
+async function restAttempt(url: string, label: RestTry["label"]): Promise<PostLike[] | null> {
+  const rec: RestTry = { label, url, status: null, ok: null, peek: "" };
+  restTries.push(rec);
+
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json", ...authHeaders } });
+    rec.status = res.status;
+    rec.ok = res.ok;
+
+    if (!res.ok) {
+      rec.peek = (await res.text().catch(() => ""))?.slice(0, 300) || "";
+      return null;
+    }
+    const arr = await res.json();
+    if (!Array.isArray(arr) || arr.length === 0) return [];
+    return arr.map(fromRestPost);
+  } catch (e: any) {
+    rec.peek = e?.message || String(e);
+    return null;
+  }
+}
 
 try {
-  if (hasTax && taxKey && (taxSlug || Number.isFinite(taxId))) {
-    // 1) Try GraphQL taxQuery first
-    const taxEnum = toTaxEnum(taxKey); // e.g. SERVICE
-    try {
-      const data = await fetchAPI(GQL_BY_TAX, { first: perPage, tax: taxEnum, term: [taxSlug] });
-      const nodes = data?.posts?.nodes ?? [];
-      latestPosts = nodes.map(toPostLike);
-    } catch (err: any) {
-      console.warn("[blog.astro] GraphQL taxQuery failed; falling back to REST:", err?.message || err);
+  if (mode === "taxonomy") {
+    // 1) GraphQL by slug (only if we *have* a slug)
+    if (taxSlugNorm) {
+      try {
+        const data = await fetchAPI(GQL_BY_TAX, {
+          first: perPage,
+          tax: toTaxEnum(taxKey),
+          term: [taxSlugNorm],
+        });
+        const nodes = data?.posts?.nodes ?? [];
+        latestPosts = nodes.map(toPostLike);
+        if (latestPosts.length > 0) {
+          pathUsed = "gql:tax";
+        } else {
+          throw new Error("GraphQL returned zero posts for taxonomy");
+        }
+      } catch (err: any) {
+        gqlError = err?.message || String(err);
+      }
+    }
 
-      // 2) Fallback to REST if WPGraphQL taxQuery fails (taxonomy not in WPGraphQL, wrong enum, etc.)
-      if (!WP_BASE) {
-        console.warn("[blog.astro] No WP_BASE set; cannot REST fallback.");
-        latestPosts = [];
-      } else {
-        restUrl = taxId
-          ? `${WP_BASE}/wp-json/wp/v2/posts?${encodeURIComponent(taxKey)}=${encodeURIComponent(String(taxId))}&per_page=${perPage}&_embed`
-          : `${WP_BASE}/wp-json/wp/v2/posts?${encodeURIComponent(taxKey)}=${encodeURIComponent(taxSlug)}&per_page=${perPage}&_embed`;
+    // 2) REST fallbacks if (a) no slug or (b) gql returned empty/failed
+    if (latestPosts.length === 0 && WP_BASE) {
+      const base = `${WP_BASE}/wp-json/wp/v2/posts?per_page=${perPage}&_embed`;
 
-        try {
-          const res = await fetch(restUrl, {
-            headers: {
-              Accept: "application/json",
-              ...authHeaders, // ← add Basic Auth for protected prod WP
-            },
-          });
-          restStatus = res.status;
-
-          if (!res.ok) {
-            restPeek = (await res.text().catch(() => ""))?.slice(0, 300) || "";
-            console.error("[blog.astro] REST HTTP", restStatus, restUrl, restPeek);
-            latestPosts = [];
-          } else {
-            const arr = await res.json();
-            latestPosts = Array.isArray(arr) ? arr.map(fromRestPost) : [];
+      // a) numeric id
+      if (taxIdNorm !== null) {
+        const u1 = `${base}&${encodeURIComponent(taxKey)}=${encodeURIComponent(String(taxIdNorm))}`;
+        const r1 = await restAttempt(u1, "rest:id");
+        if (Array.isArray(r1)) {
+          latestPosts = r1;
+          pathUsed = "rest:id";
+        }
+        if (latestPosts.length === 0) {
+          const u1b = `${base}&${encodeURIComponent(taxKey)}[]=${encodeURIComponent(String(taxIdNorm))}`;
+          const r1b = await restAttempt(u1b, "rest:id[]");
+          if (Array.isArray(r1b)) {
+            latestPosts = r1b;
+            pathUsed = "rest:id[]";
           }
-        } catch (e: any) {
-          restError = e?.message || String(e);
-          console.error("[blog.astro] REST fetch error", restError, { url: restUrl });
-          latestPosts = [];
+        }
+      }
+
+      // b) slug
+      if (latestPosts.length === 0 && taxSlugNorm) {
+        const u2 = `${base}&${encodeURIComponent(taxKey)}=${encodeURIComponent(taxSlugNorm)}`;
+        const r2 = await restAttempt(u2, "rest:slug");
+        if (Array.isArray(r2)) {
+          latestPosts = r2;
+          pathUsed = "rest:slug";
+        }
+        if (latestPosts.length === 0) {
+          const u2b = `${base}&${encodeURIComponent(taxKey)}[]=${encodeURIComponent(taxSlugNorm)}`;
+          const r2b = await restAttempt(u2b, "rest:slug[]");
+          if (Array.isArray(r2b)) {
+            latestPosts = r2b;
+            pathUsed = "rest:slug[]";
+          }
         }
       }
     }
   } else {
-    // No taxonomy provided → plain latest posts via GraphQL
+    // Plain latest via GraphQL
     const data = await fetchAPI(GQL_LATEST, { first: perPage });
     const nodes = data?.posts?.nodes ?? [];
     latestPosts = nodes.map(toPostLike);
+    pathUsed = "gql:plain";
   }
 } catch (e: any) {
   console.error("[blog.astro] fetch failed:", e?.message || e);
   latestPosts = [];
+  pathUsed = "none";
 }
 
-// Render
+// ---------- Render ----------
 const count = latestPosts.length;
 const uniq = `${idPrefix}-${Math.random().toString(36).slice(2, 10)}`;
 const countClass = `count-${count}`;
 ---
 
-{/* If nothing came back, show a debug panel on the page for live diagnosis */}
-{count === 0 && (
-  <div style="margin:1rem auto; max-width:64rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
-    <div><strong>WP_BASE_URL:</strong> {WP_BASE || "(not set)"}</div>
-    {hasTax && (
-      <>
-        <div><strong>taxonomy:</strong> {taxKey}</div>
-        <div><strong>term:</strong> {taxSlug || String(taxId)}</div>
-      </>
-    )}
-    <div><strong>REST URL:</strong> {restUrl || "(not used)"}</div>
-    <div><strong>REST status:</strong> {String(restStatus ?? "")}</div>
-    <div><strong>REST error:</strong> {String(restError ?? "")}</div>
-    <div><strong>REST peek:</strong> {restPeek}</div>
-    <div><strong>Auth:</strong> {WP_AUTH_BASIC ? "(Basic auth supplied)" : "(no auth)"} </div>
-  </div>
-)}
+{/* Always-on debug panel */}
+<!-- <div style="margin:1rem auto; max-width:64rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
+  <div><strong>WP_BASE_URL:</strong> {WP_BASE || "(not set)"} </div>
+  <div><strong>mode:</strong> {mode} | <strong>pathUsed:</strong> {pathUsed}</div>
+  {mode === "taxonomy" && (
+    <>
+      <div><strong>taxonomy:</strong> {taxKey}</div>
+      <div><strong>term (slug/id):</strong> {(taxSlugNorm || "(none)")} / {String(taxIdNorm ?? "(none)")}</div>
+      <div><strong>name:</strong> {taxName || "(n/a)"} </div>
+      {gqlError && <div><strong>gqlError:</strong> {gqlError}</div>}
+      {restTries.length > 0 && (
+        <details open>
+          <summary><strong>REST attempts ({restTries.length})</strong></summary>
+          <ul style="margin:0.5rem 0 0; padding-left:1.25rem;">
+            {restTries.map((t) => (
+              <li>
+                <div><strong>{t.label}</strong> — status: {String(t.status ?? "")} | ok: {String(t.ok ?? "")}</div>
+                <div style="overflow:auto; white-space:nowrap;">{t.url}</div>
+                {t.peek && <div>peek: {t.peek}</div>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
+  )}
+  <div><strong>Auth:</strong> {WP_AUTH_BASIC ? "(Basic auth supplied)" : "(no auth)"} </div>
+  <div><strong>count:</strong> {String(count)}</div>
+</div> -->
 
 {count > 0 && (
   <div class={`hw-contain pr zindex10 ${countClass}`} id="blog-module-inner">
-    {!hasTax ? (
+    {mode === "plain" ? (
       <>
         <h2 class="inline-block our-blog-tag-wrap">
           <div class="eyebrow our-blog-tag bg-tag">Our Blog</div>
@@ -263,11 +357,12 @@ const countClass = `count-${count}`;
         </h2>
       </>
     )}
-
-    <div class="flex-wrap blog-prev-wrap mt-[7rem] hw-slides" id={uniq} data-hw-flickity='{"cellAlign":"center"}'>
-      {latestPosts.map((p) => (
-        <BlogPrevItem post={p} img_size="intch_med" />
-      ))}
+    <div class="pr ofh blog-prev-ofh">
+        <div class="flex-wrap blog-prev-wrap mt-[7rem] hw-slides" id={uniq} data-hw-flickity='{"cellAlign":"center"}'>
+        {latestPosts.map((p) => (
+            <BlogPrevItem post={p} img_size="intch_med" />
+        ))}
+        </div>
     </div>
   </div>
 )}
