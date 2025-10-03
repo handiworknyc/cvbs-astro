@@ -1,21 +1,23 @@
 // src/lib/wp/pullFlexText.ts
-// Reusable helpers to pull ACF flex text (or any field) from WP via /wp-json/cv/v1/acf-flex-text
-// NOTE: Run server-side only (frontmatter/SSR). Cheerio won't work in the browser.
+// Pull ACF flex text (or any field) from WP via /wp-json/cv/v1/acf-flex-text
+// Server-only. Uses cheerio to optionally slice & sanitize the HTML.
 
 import * as cheerio from "cheerio";
-import { getEnv, toBase64 } from "../env.ts"; // path is one dir up
+import { getEnv, toBase64 } from "../env.ts";
 
 export type PullFrom = {
   objectType: "post" | "term";
   objectId?: number;         // for terms this can be omitted if you provide objectSlug
   objectSlug?: string;       // when objectType === "term", resolve id via slug if needed
-  taxonomy?: string;         // required for term when objectType === "term"
+  taxonomy?: string;         // required when objectType === "term"
   field?: string;            // defaults to "flex_text"
   selector?: string;         // e.g. "#why-clearview" (server can pre-filter)
   rowIndex?: number;         // e.g. 3 -> extract .rowindex-3
-
-  /** NEW: if explicit pull and no selector, slice by module class (e.g. "logo_slider") */
+  /** If explicit pull and no selector, slice by module class (e.g. "logo_slider"). */
   moduleClass?: string;
+
+  /** Turn on verbose server-side logging for this call (overrides env). */
+  debug?: boolean;
 };
 
 export type FetchFlexResp = {
@@ -28,8 +30,9 @@ export type FetchFlexResp = {
 };
 
 const WP_BASE = import.meta.env.WP_BASE_URL || "";
+const ENV_DEBUG = (process.env.PULL_FLEX_DEBUG || "").toString() === "1";
 
-/* ---------- Auth (matches api.js behavior) ---------- */
+/* ---------- Auth ---------- */
 function authHeaders(): Record<string, string> {
   const pair = getEnv("WP_AUTH_BASIC"); // "user:pass"
   if (!pair) return {};
@@ -37,104 +40,157 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Basic ${token}` } : {};
 }
 
-/** Map known class names from WP output to your utilities. */
+/* ---------- Small debug helpers ---------- */
+type HtmlSummary = {
+  htmlLen: number;
+  topElementCount: number;
+  firstTag: string | null;
+  firstClasses: string[];
+  flexModuleCount: number; // number of elements with .flex-module
+  topIsFlexModule: boolean;
+  first200: string;
+};
+
+function summarizeHtml(html = ""): HtmlSummary {
+  try {
+    const $ = cheerio.load(html, { decodeEntities: false });
+
+    const nodes = $.root().children().toArray().filter((n: any) => n.type === "tag");
+    const first = nodes[0] as any | undefined;
+
+    const firstTag = first ? first.name || null : null;
+    const firstCls = first ? ((first.attribs?.class || "").split(/\s+/).filter(Boolean)) : [];
+    const flexCnt = $(".flex-module").length;
+    const topIsFlex = !!(firstCls.includes("flex-module"));
+
+    return {
+      htmlLen: html.length,
+      topElementCount: nodes.length,
+      firstTag: firstTag,
+      firstClasses: firstCls,
+      flexModuleCount: flexCnt,
+      topIsFlexModule: topIsFlex,
+      first200: html.slice(0, 200).replace(/\s+/g, " "),
+    };
+  } catch {
+    return {
+      htmlLen: html.length,
+      topElementCount: 0,
+      firstTag: null,
+      firstClasses: [],
+      flexModuleCount: 0,
+      topIsFlexModule: false,
+      first200: html.slice(0, 200).replace(/\s+/g, " "),
+    };
+  }
+}
+
+function logStep(label: string, html: string, extra?: Record<string, any>) {
+  const sum = summarizeHtml(html);
+  const payload = { step: label, ...sum, ...(extra || {}) };
+  // Single-line, readable output:
+  console.log(`[pullFlexText] ${label}:`, payload);
+  return sum;
+}
+
+/* ---------- Class mapping (token-level) ---------- */
 function mapKnownClassNames(token: string): string {
   if (token === "container-fluid") return "hw-contain";
   return token;
 }
 
-/** Only rename classes (no spacing conversion): container-fluid -> hw-contain */
 function mapKnownClassesInHtml(html: string): string {
   if (!html) return html;
   const $ = cheerio.load(html, { decodeEntities: false });
-
   $("[class]").each((_, el) => {
-    const original = ($(el).attr("class") || "").split(/\s+/).filter(Boolean);
-    const mapped = original.map((c) => mapKnownClassNames(c));
+    const tokens = ($(el).attr("class") || "").split(/\s+/).filter(Boolean);
+    const mapped = tokens.map(mapKnownClassNames);
     const deduped = Array.from(new Set(mapped)).join(" ");
     $(el).attr("class", deduped);
   });
-
   return $.html();
 }
 
-/* -------------------------------------------------------
- * Image attribute fixups
- * ------------------------------------------------------- */
+/* ---------- Images: data-* → real attrs + perf hints ---------- */
 function fixImagesInHtml(html: string): string {
   if (!html) return html;
   const $ = cheerio.load(html, { decodeEntities: false });
 
-  $("img").each((_, img) => {
-    const $img = $(img);
+  $("img").each((_, node) => {
+    const $img = $(node);
     const dataSrc = $img.attr("data-src");
     const dataSrcset = $img.attr("data-srcset");
+    const dataSizes = $img.attr("data-sizes");
 
     if (dataSrc) $img.attr("src", dataSrc);
     if (dataSrcset) $img.attr("srcset", dataSrcset);
+    if (dataSizes) $img.attr("sizes", dataSizes);
 
+    // desired attrs
     $img.attr("loading", "lazy");
     $img.attr("async", "");
 
+    // promote critical or explicitly postload-marked images
     const hasPostload = $img.is("[data-postload]");
-    const hasCritical = ($img.attr("class") || "").split(/\s+/).includes("critical");
-    if (hasPostload || hasCritical) {
+    const isCritical = ($img.attr("class") || "").split(/\s+/).includes("critical");
+    if (hasPostload || isCritical) {
       $img.attr("fetchpriority", "high");
     }
+
+    // cleanup
+    $img.removeAttr("data-src");
+    $img.removeAttr("data-srcset");
+    $img.removeAttr("data-sizes");
   });
 
   return $.html();
 }
 
-/* -------------------------------------------------------
- * Strip redundant WP wrappers to avoid duplication with Astro
- * ------------------------------------------------------- */
-function stripRedundantFlexWrappers(html: string): string {
-  if (!html) return html;
+function stripTopFlexModule(html: string): { html: string; stripped: boolean } {
+  if (!html) return { html, stripped: false };
+  const $ = cheerio.load(html, { decodeEntities: false });
 
-  let out = html;
+  // Prefer working from <body> to avoid the cheerio <html>/<body> wrappers issue.
+  const bodyChildren = $("body")
+    .children()
+    .toArray()
+    .filter((n: any) => n.type === "tag");
 
-  for (let i = 0; i < 3; i++) {
-    const $ = cheerio.load(out, { decodeEntities: false });
+  if (bodyChildren.length) {
+    const $first = $(bodyChildren[0] as any);
+    const classes = ($first.attr("class") || "").split(/\s+/).filter(Boolean);
+    const isFlex = classes.includes("flex-module");
 
-    const $base = $(".flex-module").first();
-    if (!$base.length) break;
-
-    const $outer = $base.children(".whitebg-1, .mintbg-1").first();
-    if (!$outer.length) break;
-
-    const $inner = $outer.children(".flex-bg-inner, .pr").first();
-    if (!$inner.length) break;
-
-    const childrenHtml = $inner
-      .contents()
-      .toArray()
-      .map((n) => $.html(n))
-      .join("");
-
-    if (!childrenHtml) break;
-
-    out = childrenHtml;
-
-    if (out.includes("flex-module") && out.includes("whitebg-1")) {
-      continue;
-    } else {
-      break;
+    if (isFlex) {
+      // Unwrap the top flex-module: keep its children only
+      const inner = $first.html() || "";
+      return { html: inner, stripped: true };
     }
   }
 
-  return out;
+  // Fallback: try old root-level logic once, in case there's no <body>
+  const rootEls = $.root().children().toArray().filter((n: any) => n.type === "tag");
+  if (rootEls.length === 1) {
+    const $only = $(rootEls[0] as any);
+    const classes = ($only.attr("class") || "").split(/\s+/).filter(Boolean);
+    if (classes.includes("flex-module")) {
+      const inner = $only.html() || "";
+      return { html: inner, stripped: true };
+    }
+  }
+
+  return { html, stripped: false };
 }
 
-/* ---------------- Image URL rewrite to local proxy ---------------- */
+/* ---------- Proxy rewrite ---------- */
 function mapSrcset(srcset: string, mapUrl: (u: string) => string): string {
   return srcset
-    .split(',')
-    .map(part => {
+    .split(",")
+    .map((part) => {
       const [url, size] = part.trim().split(/\s+/, 2);
-      return [mapUrl(url), size].filter(Boolean).join(' ');
+      return [mapUrl(url), size].filter(Boolean).join(" ");
     })
-    .join(', ');
+    .join(", ");
 }
 
 function rewriteImagesToProxy(html: string, wpHost: string): string {
@@ -153,7 +209,6 @@ function rewriteImagesToProxy(html: string, wpHost: string): string {
 
   $("img").each((_, el) => {
     const $img = $(el);
-
     const src = $img.attr("src") || $img.attr("data-src");
     if (src) $img.attr("src", mapUrl(src));
 
@@ -164,8 +219,7 @@ function rewriteImagesToProxy(html: string, wpHost: string): string {
   return $.html();
 }
 
-/* ---------------- Cheerio extractors ---------------- */
-
+/* ---------- Slicers ---------- */
 export function extractBySelector(html: string, selector: string): string {
   if (!html || !selector) return "";
   try {
@@ -188,27 +242,21 @@ export function extractByRowIndex(html: string, n: number): string {
   }
 }
 
-/** NEW: Slice first module block by module class name (e.g. "logo_slider" -> ".logo_slider-module") */
+/** Slice first module block by module class (e.g. "logo_slider" → ".logo_slider-module") */
 export function extractByModuleClass(html: string, moduleClass: string): string {
   if (!html || !moduleClass) return "";
   try {
     const $ = cheerio.load(html, { decodeEntities: false });
-
-    // Primary convention: .<name>-module
     let $el = $(`.${moduleClass}-module`).first();
-
-    // Tolerant variants in case of underscores or missing suffix
     if (!$el.length) $el = $(`.${moduleClass}_module`).first();
     if (!$el.length) $el = $(`.${moduleClass}`).first();
-
     return $el.length ? $.html($el) : "";
   } catch {
     return "";
   }
 }
 
-/* ---------------- Internals: resolve IDs by slug ---------------- */
-
+/* ---------- Term id resolver ---------- */
 async function resolveTermIdBySlug(taxonomy: string, slug: string): Promise<number | null> {
   if (!WP_BASE || !taxonomy || !slug) return null;
   const url = `${WP_BASE}/wp-json/wp/v2/${encodeURIComponent(taxonomy)}?slug=${encodeURIComponent(slug)}`;
@@ -229,18 +277,17 @@ async function resolveTermIdBySlug(taxonomy: string, slug: string): Promise<numb
   }
 }
 
-/* ---------------- Public API ---------------- */
-
+/* ---------- Public API ---------- */
 export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
   if (!WP_BASE) {
     const msg = "[pullFlexText] Missing WP_BASE_URL env";
     console.error(msg);
     return { html: "", error: msg };
   }
-
+  const shouldDebug = !!pf.debug || ENV_DEBUG;
   const field = pf.field || "flex_text";
 
-  // --- Taxonomy validation + optional term-id resolution by slug ---
+  // Validate term pulls + optional slug resolve
   if (pf.objectType === "term") {
     if (!pf.taxonomy) {
       const msg = "[pullFlexText] taxonomy is required when objectType==='term'";
@@ -263,20 +310,14 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
     object_id: String(pf.objectId!),
     field,
   });
-
-  if (pf.objectType === "term" && pf.taxonomy) {
-    qs.set("taxonomy", pf.taxonomy);
-  }
+  if (pf.objectType === "term" && pf.taxonomy) qs.set("taxonomy", pf.taxonomy);
   if (pf.selector) qs.set("selector", pf.selector);
 
   const url = `${WP_BASE}/wp-json/cv/v1/acf-flex-text?${qs.toString()}`;
 
   try {
     const res = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        ...authHeaders(),
-      },
+      headers: { Accept: "application/json", ...authHeaders() },
     });
 
     if (!res.ok) {
@@ -294,8 +335,9 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
       return { html: "", raw: data, url, error: msg };
     }
 
-    // --- Slicing priority ---
-    // 1) If selector provided, try server-side selected.html first, else client slice by selector.
+    if (shouldDebug) logStep("RAW_FROM_WP", html, { url, pf });
+
+    // ---- Slicing priority ----
     let usedSelector = false;
     if (pf.selector) {
       usedSelector = true;
@@ -305,10 +347,9 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
       } else {
         html = data.selected.html;
       }
+      if (shouldDebug) logStep("AFTER_SELECTOR", html, { selector: pf.selector });
     }
 
-    // 2) If EXPLICIT pull (caller set moduleClass) and NO selector: slice by module class
-    //    (e.g. moduleClass="logo_slider" -> ".logo_slider-module")
     let usedModuleClass = false;
     if (!usedSelector && pf.moduleClass) {
       const byMod = extractByModuleClass(html, pf.moduleClass);
@@ -316,27 +357,43 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
         html = byMod;
         usedModuleClass = true;
       }
+      if (shouldDebug) logStep("AFTER_MODULE_CLASS", html, { moduleClass: pf.moduleClass });
     }
 
-    // 3) If rowIndex is provided (non-explicit contexts), slice by row index
     if (!usedSelector && !usedModuleClass && Number.isFinite(pf.rowIndex)) {
       const byRow = extractByRowIndex(html, pf.rowIndex as number);
       if (byRow) html = byRow;
+      if (shouldDebug) logStep("AFTER_ROW_INDEX", html, { rowIndex: pf.rowIndex });
     }
 
-    // HTML post-processing
-    html = stripRedundantFlexWrappers(html);
-    html = mapKnownClassesInHtml(html);
-    html = fixImagesInHtml(html);
+    // ---- Sanitize / Normalize (order matters) ----
+    const preStripSummary = shouldDebug ? summarizeHtml(html) : null;
+    const stripped = stripTopFlexModule(html);
+    html = stripped.html;
+    if (shouldDebug) {
+      logStep("AFTER_STRIP_TOP_FLEX", html, { strippedTopFlex: stripped.stripped, preStrip: preStripSummary });
+    }
 
-    // Rewrite WP-hosted images to same-origin proxy (/api/img)
+    html = mapKnownClassesInHtml(html);
+    if (shouldDebug) logStep("AFTER_CLASS_MAP", html);
+
+    html = fixImagesInHtml(html);
+    if (shouldDebug) logStep("AFTER_IMG_FIX", html);
+
     let wpHost = "";
     try { wpHost = new URL(WP_BASE).hostname; } catch {}
     if (wpHost) {
       html = rewriteImagesToProxy(html, wpHost);
+      if (shouldDebug) logStep("AFTER_PROXY_REWRITE", html, { wpHost });
     }
 
-    // Add light debug payload in raw for on-page panels
+    // Optionally inject HTML comments so you can see steps in the DOM if needed
+    if (shouldDebug && ENV_DEBUG) {
+      const sum = summarizeHtml(html);
+      html = `<!-- PULL_FLEX DEBUG: ${JSON.stringify({ url, step: "FINAL", sum })} -->\n${html}`;
+    }
+
+    // debug payload
     const debug = {
       url,
       objectType: pf.objectType,
@@ -348,6 +405,12 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
       usedSelector,
       usedModuleClass,
       usedRowIndex: !usedSelector && !usedModuleClass && Number.isFinite(pf.rowIndex),
+      snapshots: shouldDebug
+        ? {
+            raw: summarizeHtml((data?.selected?.html ?? data?.html) || ""),
+            final: summarizeHtml(html),
+          }
+        : undefined,
       htmlLen: html.length,
     };
 
