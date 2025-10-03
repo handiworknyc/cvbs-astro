@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 
-const ALLOW_HOSTS = (import.meta.env.WP_BASE_URL || '')
+const ALLOW_HOSTS = (import.meta.env.WP_IMAGE_ALLOW_HOSTS || '')
   .split(',')
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);
