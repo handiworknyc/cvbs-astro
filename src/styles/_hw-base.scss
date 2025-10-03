@@ -43,6 +43,47 @@ html {
 
 
 
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root) .switcher,
+  ::view-transition-new(root) .switcher {
+    animation: none !important;
+  }
+}
+
+/* Fade OUT old page */
+::view-transition-old(root) .switcher {
+  animation: vt-fade-out 1000ms var(--cubicBez) both;
+}
+
+/* Fade + slide IN new page */
+::view-transition-new(root) .switcher {
+  animation: vt-fade-in-up 1200ms var(--cubicBez) both;
+}
+
+@keyframes vt-fade-out {
+  from { opacity: 1 }
+  to   { opacity: 0 }
+}
+
+@keyframes vt-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(3%); /* slide up from 3% lower */
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+
+
+
+
+
+
+
+
 body {
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -174,3 +215,42 @@ a.img-card-item .img-card-inner,
 .footer-cta-left-heading.wrap-chars .charParent {
 	opacity: calc(var(--charProg) * 1.9);
 }
+
+
+
+
+
+
+.mb4 {
+    margin-bottom: 4rem;
+}
+
+.pb1h {
+    padding-bottom: 1.5rem;
+}
+
+.pt2 {
+    padding-top: 2rem;
+}
+
+.pb1 {
+    padding-bottom: 1rem;
+}
+
+
+@media (min-width: 700px) {
+    .pb0-700 {
+        padding-bottom: 0
+    }
+}
+
+@media (min-width: 1025px) {
+    .mb8-1025 {
+        margin-bottom: 8rem;
+    }    
+
+    .pt3-1025 {
+        padding-top: 3rem;
+    }
+}
+ 

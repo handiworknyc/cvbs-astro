@@ -1,0 +1,56 @@
+---
+import { fetchFlexText } from "../../lib/wp/pullFlexText";
+
+console.log(Astro.props);
+// Put the type before usage
+export type PullFrom = {
+  objectType: "post" | "term";
+  objectId: number;
+  taxonomy?: string;   // required when objectType === "term"
+  field?: string;      // defaults to "flex_text"
+  selector?: string;   // e.g. "#why-clearview"
+};
+
+interface Props {
+  postId?: number | null;
+  currentPost?: any;
+  pull_from?: false | PullFrom; // optional overrides coming from the template
+  section_id?: string;
+  wrapperClasses?: string;
+  geo_keyword?: string;
+}
+
+const {
+  postId = null,
+  currentPost = null, // not used here, but available if needed
+  pull_from = false,
+  section_id = "",
+  wrapperClasses = "",
+  geo_keyword = "",
+} = Astro.props as Props;
+
+let pulledHtml = "";
+
+// Build our own PullFrom when we only have a postId,
+// and merge with any incoming overrides from `pull_from`
+if (postId) {
+  // Base: use post context + default field
+  const basePull: PullFrom = {
+    objectType: "post",
+    objectId: postId,
+    field: "flex_text",
+    rowIndex: Astro.props.rowIndex
+};
+  const pulled = await fetchFlexText(basePull);
+  pulledHtml = pulled?.html || "";
+}
+---
+
+{pulledHtml ? (
+    <Fragment set:html={pulledHtml} />
+) : (
+  // your local render path
+  <section id={section_id} class={wrapperClasses} data-geo={geo_keyword}>
+    <div>No pulled HTML – render local here.</div>
+  </section>
+)}

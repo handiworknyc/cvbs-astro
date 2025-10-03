@@ -16,13 +16,16 @@
     "@astrojs/netlify": "^6.5.11",
     "@astrojs/react": "^4.4.0",
     "astro": "^5.14.1",
+    "cheerio": "^1.1.2",
+    "flickity": "^2.3.0",
     "geist": "^1.5.1",
     "gsap": "^3.13.0",
     "locomotive-scroll": "^5.0.0-beta.21",
     "motion": "^12.23.22",
     "motion-plus": "https://api.motion.dev/registry?package=motion-plus&version=1.5.4&token=4d9d2a16fce72996f44a3548c4893c2e84e5860e868d75e26663f9f9b9baf4df",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-flickity-component": "^5.0.0"
   },
   "devDependencies": {
     "@astrojs/tailwind": "^6.0.2",

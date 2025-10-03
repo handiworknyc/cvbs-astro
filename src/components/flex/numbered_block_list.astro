@@ -1,0 +1,247 @@
+---
+/**
+ * numbered_block_list.astro
+ * - Local render from props.list
+ * - Optional pull-through from WP via /wp-json/cv/v1/acf-flex-text
+ *
+ * Expected props (example from your log):
+ * {
+ *   layout_settings: { bg_color: 'none' },
+ *   section_id: 'why-clearview',
+ *   pull_from: false OR {
+ *     objectType: 'post' | 'term',
+ *     objectId: number,
+ *     taxonomy?: string,         // required for term
+ *     field?: string,            // defaults to 'flex_text'
+ *     selector?: string          // e.g. '#why-clearview'
+ *   },
+ *   eyebrow: 'What we offer',
+ *   section_title: 'Why Great Neck Businesses Choose Clear View',
+ *   small_title: false,
+ *   no_num: false,
+ *   list: [{
+ *     title: string,
+ *     text: string (HTML),
+ *     img_align: 'left'|'center'|'right' (free-form),
+ *     images: [{
+ *        id?: number,
+ *        alt?: string,
+ *        src?: string, url?: string,
+ *        width?: number, height?: number,
+ *        sizes?: { intch_xl?: string, intch_lg?: string, intch_med?: string, intch_sm?: string }
+ *     }]
+ *   }]
+ * }
+ */
+
+type NBImage = {
+  id?: number;
+  alt?: string;
+  src?: string;
+  url?: string;
+  width?: number;
+  height?: number;
+  sizes?: Record<string, string>;
+};
+
+type NBItem = {
+  title?: string;
+  text?: string; // HTML allowed
+  img_align?: string; // "center" etc.
+  images?: NBImage[];
+};
+
+interface PullFrom {
+  objectType: 'post' | 'term';
+  objectId: number;
+  taxonomy?: string;
+  field?: string;
+  selector?: string;
+}
+
+interface Props {
+  layout_settings?: { bg_color?: string };
+  section_id?: string;
+  pull_from?: false | PullFrom;
+  eyebrow?: string;
+  section_title?: string;
+  small_title?: boolean;
+  no_num?: boolean;
+  list?: NBItem[];
+
+  // optional geo keyword for data-geo attr (parity with PHP template)
+  geo_keyword?: string;
+
+  // container class if you need to wrap differently
+  containerClass?: string;
+}
+
+const {
+  layout_settings = { bg_color: 'none' },
+  section_id = '',
+  pull_from = false,
+  eyebrow = '',
+  section_title = '',
+  small_title = false,
+  no_num = false,
+  list = [],
+  geo_keyword = '',
+  containerClass = ''
+} = Astro.props as Props;
+
+/* ---------------- helpers ---------------- */
+
+function decodeEntitiesDeep(s = ''): string {
+  let out = s;
+  for (let i = 0; i < 4; i++) {
+    const before = out;
+    out = out
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/&#(\d+);/g,       (_, n) => String.fromCharCode(parseInt(n, 10)))
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+    if (out === before) break;
+  }
+  return out;
+}
+
+function ensureHtml(s = ''): string {
+  if (!s) return '';
+  // decode entities (covers cases where HTML was stored double-encoded)
+  return decodeEntitiesDeep(s);
+}
+
+function bestImgSrc(img: NBImage): string {
+  const sz = img?.sizes || {};
+  // mirrors your preference for larger sizes first
+  return sz.intch_lg || sz.intch_xl || sz.intch_med || sz.intch_sm || img?.src || img?.url || '';
+}
+
+function computeAspect(img: NBImage): string {
+  const w = Number(img?.width || 0);
+  const h = Number(img?.height || 0);
+  if (w > 0 && h > 0) {
+    // If portrait-ish in your PHP you forced 15/10
+    if (h > w) return '15/10';
+    return `${w} / ${h}`;
+  }
+  // fallback
+  return '16/10';
+}
+
+/* ---------------- pull-through via REST ---------------- */
+
+const WP_BASE = import.meta.env.PUBLIC_WP_BASE || ''; // e.g. https://yoursite.com
+
+type FetchResp = { html: string };
+
+async function fetchFlexText(pf: PullFrom): Promise<FetchResp> {
+  if (!WP_BASE) return { html: '' };
+
+  const field = pf.field || 'flex_text';
+  const params = new URLSearchParams({
+    object_type: pf.objectType,
+    object_id: String(pf.objectId),
+    field
+  });
+  if (pf.objectType === 'term' && pf.taxonomy) params.set('taxonomy', pf.taxonomy);
+  if (pf.selector) params.set('selector', pf.selector);
+
+  try {
+    const res = await fetch(`${WP_BASE}/wp-json/cv/v1/acf-flex-text?${params.toString()}`);
+    if (!res.ok) return { html: '' };
+    const data = await res.json();
+    // If selector was used, plugin returns it in selected.html; else use html
+    const html = (data?.selected?.html ?? data?.html) || '';
+    return { html };
+  } catch {
+    return { html: '' };
+  }
+}
+
+let pulledHtml = '';
+if (pull_from && typeof pull_from === 'object') {
+  const pulled = await fetchFlexText(pull_from);
+  pulledHtml = pulled.html || '';
+}
+
+/* ---------------- classes ---------------- */
+
+const bgClass = `bg-${layout_settings?.bg_color || 'none'}`;
+const titleClass = small_title ? 'lg-section-text med ls-5' : 'num-block-title';
+const wrapperClasses = [
+  'numbered_block_list-module',
+  bgClass,
+  containerClass
+].filter(Boolean).join(' ');
+---
+
+{pulledHtml ? (
+  // ===== Mode 1: Pull-through =====
+  <section id={section_id} class={wrapperClasses} data-geo={geo_keyword}>
+    <div set:html={pulledHtml} />
+  </section>
+) : (
+  // ===== Mode 2: Local render =====
+  <section id={section_id} class={wrapperClasses} data-geo={geo_keyword}>
+    <div class="pb-24 no-num-{no_num}">
+      <div class="hw-contain num-block-flex pr flex-wrap">
+        <div class="num-block-title-wrap">
+          {eyebrow && (
+            <div class="eyebrow pb-6 c-brandgreen num-block-eyebrow">
+              {eyebrow}
+            </div>
+          )}
+          {section_title && (
+            <h2 class={`${titleClass} round-vw-lh mb-20 lilblur wrap-chars`} set:html={ensureHtml(section_title)} />
+          )}
+        </div>
+
+        <div class="num-block-list pr">
+          <div class="num-block-list-inner flex-wrap">
+            {list.map((item, idx) => {
+              const num = idx + 1;
+              const thenum = no_num ? '' : `<span class='c-brandgreen eyebrow'>0${num}</span>`;
+              // Build overlay slides HTML (if any)
+              const slidesHtml = Array.isArray(item.images) && item.images.length
+                ? item.images.map((img, i) => {
+                    const src = bestImgSrc(img);
+                    if (!src) return '';
+                    const aspect = computeAspect(img);
+                    const align = item.img_align || 'center';
+                    const alt = img?.alt ? `alt="${img.alt.replace(/"/g, '&quot;')}"` : `alt=""`;
+                    return `
+                      <div style="aspect-ratio: ${aspect}" class="img-align-${align} num-block-img-wrap num-block-img-${i} abs">
+                        <img async loading='lazy' fetchpriority='high' src="${src}" class="pr num-block-img lg-img-${i}" ${alt} />
+                      </div>
+                    `;
+                  }).join('')
+                : '';
+
+              return (
+                <Fragment>
+                  <div class="num-block-li">
+                    <div>
+                      <Fragment set:html={thenum} />
+                      {item.title && (
+                        <h3 class="num-block-li-title" set:html={ensureHtml(item.title)} />
+                      )}
+                      <div class="num-block-li-text">
+                        {item.text && <Fragment set:html={ensureHtml(item.text)} />}
+                      </div>
+                    </div>
+                  </div>
+                  {/* overlay images positioned absolutely like your PHP */}
+                  {slidesHtml && <Fragment set:html={slidesHtml} />}
+                </Fragment>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+)}

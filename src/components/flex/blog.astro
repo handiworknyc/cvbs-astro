@@ -1,15 +1,20 @@
 ---
 /**
  * src/components/blog.astro
- * Server-side latest posts block that DOES NOT hit /api/blog-latest.json.
- * It queries WP GraphQL directly using the auth-aware fetchAPI helper.
- * - Never throws during SSR (renders nothing if fetch fails)
- * - Optionally filters by taxonomy NAME (best-effort if provided)
+ * Fetch latest posts, optionally filtered by a custom taxonomy term.
+ * Strategy:
+ *  - If taxonomy provided:
+ *      Try GraphQL taxQuery (needs taxonomy registered in WPGraphQL).
+ *      If that fails, fallback to REST: /wp-json/wp/v2/posts?{tax}={term_id}&_embed
+ *  - Else: plain latest posts via GraphQL.
  */
 
 import BlogPrevItem from "@/components/BlogPrevItem.astro";
-import { fetchAPI } from "@/lib/wp"; // auth-aware (uses WORDPRESS_API_URL + WP_AUTH_BASIC)
+import { fetchAPI } from "@/lib/wp"; // your auth-aware GraphQL fetch
+// Base URL for REST fallback (must be public since SSR fetch runs server-side)
+const WP_BASE = import.meta.env.PUBLIC_WP_BASE || import.meta.env.WP_BASE_URL || "";
 
+// Types
 type ImageMap = Record<string, string>;
 interface ImageLike { src?: string; alt?: string; sizes?: ImageMap }
 interface PostLike {
@@ -21,11 +26,10 @@ interface PostLike {
   permalink?: string;
   image?: ImageLike | null;
 }
-
-interface TaxTerm { taxonomy: string; term_id: number; name?: string }
+interface TaxTerm { taxonomy: string; term_id: number; name?: string; slug?: string }
 
 interface Props {
-  taxonomy?: TaxTerm[];   // e.g. [{ taxonomy: "service", term_id: 8, name: "Floor Care" }]
+  taxonomy?: TaxTerm[];   // e.g. [{ taxonomy: "service", term_id: 7, name: "Facility Maintenance", slug:"facility-maintenance" }]
   idPrefix?: string;
   perPage?: number;
 }
@@ -36,19 +40,16 @@ const {
   perPage = 6,
 } = Astro.props as Props;
 
-// Best-effort: if a taxonomy name is provided, we’ll match posts that list that name in categories/tags.
-// (Filtering custom taxonomies via GraphQL requires knowing exact schema/enums; this keeps it resilient.)
-let hasTax = false;
-let taxName = "";
-if (Array.isArray(taxonomy) && taxonomy.length) {
-  hasTax = true;
-  // prefer the first provided name if present
-  for (const t of taxonomy) {
-    if (t?.name) { taxName = t.name; break; }
-  }
-}
+// Pull first taxonomy (if any)
+const tx = Array.isArray(taxonomy) && taxonomy.length ? taxonomy[0] : null;
+const hasTax = !!tx;
+const taxName = tx?.name || "";
+const taxSlug = tx?.slug || "";      // preferred for WPGraphQL/REST by slug
+const taxId   = tx?.term_id ?? null; // REST fallback by id
+const taxKey  = tx?.taxonomy || "";  // e.g. "service"
 
-const GQL = /* GraphQL */ `
+// --- GraphQL: latest posts (no filter) ---
+const GQL_LATEST = /* GraphQL */ `
   query BlogLatest($first:Int!) {
     posts(first: $first, where: { orderby: { field: DATE, order: DESC } }) {
       nodes {
@@ -72,11 +73,41 @@ const GQL = /* GraphQL */ `
   }
 `;
 
+// --- GraphQL: filtered by custom taxonomy (requires WPGraphQL taxonomy enum) ---
+const GQL_BY_TAX = /* GraphQL */ `
+  query PostsByTax($first:Int!, $tax: TaxonomyEnum!, $term: [String]) {
+    posts(first: $first, where: {
+      taxQuery: {
+        taxArray: [
+          { taxonomy: $tax, terms: $term, field: SLUG, operator: IN }
+        ]
+      },
+      orderby: { field: DATE, order: DESC }
+    }) {
+      nodes {
+        databaseId
+        title
+        date
+        uri
+        excerpt
+        featuredImage {
+          node {
+            sourceUrl
+            srcSet
+            altText
+            mediaDetails { width height }
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Helper: map GraphQL node → PostLike
 function toPostLike(n: any): PostLike {
   const img = n?.featuredImage?.node;
   const sizes: ImageMap = {};
   if (img?.srcSet) {
-    // optionally parse srcSet into sizes map (simple split)
     for (const part of String(img.srcSet).split(",")) {
       const [u, w] = part.trim().split(" ");
       if (u && w) sizes[w] = u;
@@ -93,28 +124,67 @@ function toPostLike(n: any): PostLike {
   };
 }
 
+// Helper: REST _embed → PostLike
+function fromRestPost(p: any): PostLike {
+  // title/excerpt are rendered (HTML). permalink is link/slug (use link here).
+  const media = p?._embedded?.["wp:featuredmedia"]?.[0];
+  const src = media?.source_url || null;
+  return {
+    id: p?.id,
+    title: p?.title?.rendered ?? "",
+    date: p?.date ?? "",
+    dateISO: p?.date ?? "",
+    excerpt: p?.excerpt?.rendered ?? "",
+    permalink: p?.link ?? "#",
+    image: src ? { src, alt: media?.alt_text || "" } : null,
+  };
+}
+
+// Try to build a GraphQL taxonomy enum from a slug like "service" -> "SERVICE"
+function toTaxEnum(taxonomy: string): string {
+  return taxonomy.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+}
+
 let latestPosts: PostLike[] = [];
+
 try {
-  const data = await fetchAPI(GQL, { first: perPage });
-  const nodes = data?.posts?.nodes ?? [];
-  let mapped = nodes.map(toPostLike);
-
-  if (hasTax && taxName) {
-    const nameLower = taxName.toLowerCase();
-    mapped = mapped.filter((_, idx) => {
-      const node = nodes[idx];
-      const cats = (node?.categories?.nodes ?? []).map((c: any) => (c?.name || "").toLowerCase());
-      const tags = (node?.tags?.nodes ?? []).map((t: any) => (t?.name || "").toLowerCase());
-      return cats.includes(nameLower) || tags.includes(nameLower);
-    });
+  if (hasTax && taxKey && taxSlug) {
+    // 1) Try GraphQL taxQuery first
+    const taxEnum = toTaxEnum(taxKey); // e.g. SERVICE
+    try {
+      const data = await fetchAPI(GQL_BY_TAX, { first: perPage, tax: taxEnum, term: [taxSlug] });
+      const nodes = data?.posts?.nodes ?? [];
+      latestPosts = nodes.map(toPostLike);
+    } catch (err) {
+      // 2) Fallback to REST if GraphQL taxQuery fails (taxonomy not in WPGraphQL, wrong enum, etc.)
+      if (!WP_BASE) {
+        console.warn("[blog.astro] No WP_BASE set; cannot REST fallback.");
+        latestPosts = [];
+      } else {
+        const url = taxId
+          ? `${WP_BASE}/wp-json/wp/v2/posts?${encodeURIComponent(taxKey)}=${encodeURIComponent(String(taxId))}&per_page=${perPage}&_embed`
+          : `${WP_BASE}/wp-json/wp/v2/posts?${encodeURIComponent(taxKey)}=${encodeURIComponent(taxSlug)}&per_page=${perPage}&_embed`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const arr = await res.json();
+          latestPosts = Array.isArray(arr) ? arr.map(fromRestPost) : [];
+        } else {
+          latestPosts = [];
+        }
+      }
+    }
+  } else {
+    // No taxonomy provided → plain latest posts via GraphQL
+    const data = await fetchAPI(GQL_LATEST, { first: perPage });
+    const nodes = data?.posts?.nodes ?? [];
+    latestPosts = nodes.map(toPostLike);
   }
-
-  latestPosts = mapped;
 } catch (e: any) {
-  console.error("[blog.astro] GraphQL fetch failed:", e?.message || e);
+  console.error("[blog.astro] fetch failed:", e?.message || e);
   latestPosts = [];
 }
 
+// Render
 const count = latestPosts.length;
 const uniq = `${idPrefix}-${Math.random().toString(36).slice(2, 10)}`;
 const countClass = `count-${count}`;
@@ -158,7 +228,7 @@ const countClass = `count-${count}`;
 				</g>
 			  </g>
 			</svg>		 
-
+            
         <div class="blog-subtitle lite tac">
           Exploring trends, tools, and best practices in janitorial and maintenance services.
         </div>
@@ -177,7 +247,7 @@ const countClass = `count-${count}`;
       </>
     )}
 
-    <div class="flex-wrap blog-prev-wrap mt-[7rem] hw-slides" id={uniq} data-hw-flickity='{"cellAlign" : "center"}'>
+    <div class="flex-wrap blog-prev-wrap mt-[7rem] hw-slides" id={uniq} data-hw-flickity='{"cellAlign":"center"}'>
       {latestPosts.map((p) => (
         <BlogPrevItem post={p} img_size="intch_med" />
       ))}

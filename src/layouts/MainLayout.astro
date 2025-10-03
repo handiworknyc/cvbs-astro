@@ -1,5 +1,5 @@
 ---
-import { ViewTransitions } from "astro:transitions";
+//import { ViewTransitions } from "astro:transitions";
 import SiteFooter from "../components/SiteFooter.astro";
 import SiteNav from "../components/SiteNav.astro";
 import { navQuery } from "../lib/api";
@@ -45,6 +45,8 @@ const { title = "", description = "" } = Astro.props;
 const pageTitle = title
   ? `${title} | ${generalSettings?.title ?? ""}`
   : (generalSettings?.title ?? "");
+
+
 ---
 
 <html lang="en">
@@ -251,22 +253,27 @@ const pageTitle = title
 
     <!-- Preload + lazy apply below-the-fold CSS -->
     <link rel="preload" href={belowCssUrl} as="style" />
+
+	<script type="module" src={flickityUrl}></script>
+	<script type="module" src={flickitysUrl}></script>
+
+
   </head>
 
   <body>
-    <ViewTransitions />
 
     <main>
       <SiteNav menu={primaryMenu} generalSettings={generalSettings} />
       <hr />
-      <slot />
+
+	  <div class="switcher">
+       	<slot />
+	  </div>
     </main>
 
     <SiteFooter />
 
-    <script type="module" src={flickityUrl}></script>
-    <script type="module" src={themeUrl}></script>
-    <script type="module" src={flickitysUrl}></script>
+	<script type="module" src={themeUrl}></script>
 
 	<link
       rel="stylesheet"

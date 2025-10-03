@@ -1,7 +1,7 @@
 ---
 import { normalizeLayouts, type NormRow } from "./normalize";
 
-// Props
+// Props coming *into* this renderer
 interface Props {
   layouts?: any[];
   /** Optional: "service" | "service-area" to mirror hw_get_current_taxonomy_context() */
@@ -13,14 +13,36 @@ const {
   taxContext = null,
 } = Astro.props as Props;
 
+// ✅ Use the same env key everywhere (public env vars in Astro must start with PUBLIC_)
+const WP_BASE = import.meta.env.WP_BASE_URL; 
+const slug = Astro.params?.slug as string | undefined;
+
+// 🔒 Fetch current post (guarded)
+let currentPost: any = null;
+if (WP_BASE && slug) {
+  try {
+    const res = await fetch(`${WP_BASE}/wp-json/wp/v2/pages?slug=${encodeURIComponent(slug)}`);
+    if (res.ok) {
+      const posts = await res.json();
+      currentPost = posts?.[0] ?? null;
+    }
+  } catch {}
+}
+
+const postId = currentPost?.id ?? null;
+
+// ❌ You were re-declaring `layouts` and overwriting the prop.
+// If you want to prefer WP layouts when present, do this instead:
+const fetchedLayouts = currentPost?.acf?.layouts ?? null;
+const effectiveLayouts = Array.isArray(fetchedLayouts) && fetchedLayouts.length > 0
+  ? fetchedLayouts
+  : layouts;
+
 // Normalize to { name, key, data, meta }
-const rows: NormRow[] = normalizeLayouts(layouts);
+const rows: NormRow[] = normalizeLayouts(effectiveLayouts);
 
 /**
  * Auto-register all components in ./components/flex
- * File name (without .astro) must equal the layout slug.
- *   e.g. components/flex/hero_text.astro  -> "hero_text"
- *        components/flex/rich_text.astro  -> "rich_text"
  */
 const modules = import.meta.glob("/src/components/flex/*.astro", { eager: true });
 
@@ -28,77 +50,55 @@ const modules = import.meta.glob("/src/components/flex/*.astro", { eager: true }
 const REGISTRY: Record<string, any> = {};
 for (const [p, mod] of Object.entries(modules)) {
   const file = p.split("/").pop() || "";
-  const slug = file.replace(/\.astro$/i, "");
+  const key = file.replace(/\.astro$/i, "");
   // @ts-expect-error default is the astro component
-  REGISTRY[slug] = (mod as any).default;
+  REGISTRY[key] = (mod as any).default;
 }
 
 // Helpers to resolve a component from a layout name
 function toKebab(s: string) {
-  return s
-    .replace(/[_\s]+/g, "-")
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .toLowerCase();
+  return s.replace(/[_\s]+/g, "-").replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 }
 function toSnake(s: string) {
-  return s
-    .replace(/[-\s]+/g, "_")
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .toLowerCase();
+  return s.replace(/[-\s]+/g, "_").replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
 function toCamel(s: string) {
   const base = s.replace(/[-_ ]+(\w)/g, (_, c) => (c ? c.toUpperCase() : ""));
   return base.charAt(0).toLowerCase() + base.slice(1);
 }
 function resolveComponent(layoutName: string) {
-  // 1) exact
   if (REGISTRY[layoutName]) return REGISTRY[layoutName];
-  // 2) common transforms
   const cands = [toKebab(layoutName), toSnake(layoutName), toCamel(layoutName)];
   for (const k of cands) if (REGISTRY[k]) return REGISTRY[k];
   return null;
 }
 
-// Background logic (ports your PHP conditions)
+// Background logic
 const firstLayout = rows[0]?.name ?? "";
 
-// Equivalent to:
-// hw_get_current_taxonomy_context('service') || hw_get_current_taxonomy_context('service-area')
-// OR $firstlayout == 'service_area_banner'
 function isAltBgContext(): boolean {
-  const taxOk =
-    taxContext === "service" || taxContext === "service-area";
+  const taxOk = taxContext === "service" || taxContext === "service-area";
   return taxOk || firstLayout === "service_area_banner";
-}// For each row, compute the optional wrapper class (whitebg-1 / mintbg-1 / {bg}bg-1)
-
-
+}
 
 function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
   const ls = (row as any)?.data?.layout_settings ?? {};
   const bgColor: string = typeof ls?.bg_color === "string" ? ls.bg_color.trim() : "";
-
-  // "mint" -> "mintbg-1"; ignore "none"; accept full class like "mintbg-1"
   const toBgClass = (val: string) => {
     const v = val.toLowerCase();
     if (!v || v === "none") return null;
     if (/\bbg-1\b/.test(v)) return v;
     return `${v}bg-1`;
-    };
-
-  // A) explicit per-row setting wins
+  };
   const explicit = toBgClass(bgColor);
   if (explicit) return explicit;
-
-  // B) otherwise alternate for service/service-area contexts
   if (isAltBgContext() && rowindex >= 2) {
     return rowindex % 2 === 0 ? "whitebg-1" : "mintbg-1";
   }
-
-  // C) no wrapper
   return null;
 }
-
 ---
+
 
 {rows.length === 0 && (
   <div class="prose mx-auto my-12 text-center opacity-70">
@@ -108,52 +108,29 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
 
 {rows.map((row, idx) => {
   const Comp = resolveComponent(row.name);
-
-  // Match PHP's 1-based indexing
-  const rowindex = idx + 1;
+  const rowindex = idx + 1; // 1-based index
 
   const idAttr = row.meta.id ? { id: row.meta.id } : {};
   const sectionClass = ["flex-bg", ...row.meta.classes].join(" ").trim();
 
-  // Compute optional wrapper background class
   const bgWrapClass = computeBgWrapClass(row, rowindex);
-    console.log(bgWrapClass);
-  // Inner wrapper classes: "zindex100 pr" + optional ofh
-  const innerWrapClasses = ["flex-bg-inner", "z-100", "pr", ...(row.meta?.ofh ? ["ofh"] : [])].join(" ");
+  const innerWrapClasses = [
+    "flex-bg-inner",
+    "z-100",
+    "pr",
+    ...(row.meta?.ofh ? ["ofh"] : []),
+  ].join(" ");
 
   return (
     <section {...idAttr} class={sectionClass}>
       {row.meta.preHtml && <div set:html={row.meta.preHtml} />}
 
-      {
-        // If we have a background wrapper to apply, nest the component inside:
-        bgWrapClass ? (
-          <div class={bgWrapClass}>
-            <div class={innerWrapClasses}>
-              {Comp ? (
-                <Comp {...row.data} />
-              ) : (
-                <div class="mx-auto my-8 max-w-5xl rounded-xl border p-4">
-                  <p class="font-semibold">
-                    Unknown layout: <code>{row.name}</code>
-                  </p>
-                  <p class="text-sm mt-1">
-                    Create <code>src/lib/wp/components/flex/{toSnake(row.name)}.astro</code> (or{" "}
-                    <code>{toKebab(row.name)}.astro</code>) to handle this layout.
-                  </p>
-                  <details class="mt-2">
-                    <summary class="cursor-pointer">Inspect data</summary>
-                    <pre class="mt-2 overflow-auto text-sm">{JSON.stringify(row.data, null, 2)}</pre>
-                  </details>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          // No background wrapper — render component directly (same fallback)
-          <>
+      {bgWrapClass ? (
+        <div class={bgWrapClass}>
+          <div class={innerWrapClasses}>
             {Comp ? (
-              <Comp {...row.data} />
+              /* ✅ Pass postId, currentPost, rowIndex into every sub-layout */
+              <Comp {...row.data} postId={postId} currentPost={currentPost} rowIndex={rowindex} />
             ) : (
               <div class="mx-auto my-8 max-w-5xl rounded-xl border p-4">
                 <p class="font-semibold">
@@ -165,13 +142,37 @@ function computeBgWrapClass(row: NormRow, rowindex: number): string | null {
                 </p>
                 <details class="mt-2">
                   <summary class="cursor-pointer">Inspect data</summary>
-                  <pre class="mt-2 overflow-auto text-sm">{JSON.stringify(row.data, null, 2)}</pre>
+                  <pre class="mt-2 overflow-auto text-sm">
+                    {JSON.stringify(row.data, null, 2)}
+                  </pre>
                 </details>
               </div>
             )}
-          </>
-        )
-      }
+          </div>
+        </div>
+      ) : (
+        <>
+          {Comp ? (
+            <Comp {...row.data} postId={postId} currentPost={currentPost} rowIndex={rowindex} />
+          ) : (
+            <div class="mx-auto my-8 max-w-5xl rounded-xl border p-4">
+              <p class="font-semibold">
+                Unknown layout: <code>{row.name}</code>
+              </p>
+              <p class="text-sm mt-1">
+                Create <code>src/lib/wp/components/flex/{toSnake(row.name)}.astro</code> (or{" "}
+                <code>{toKebab(row.name)}.astro</code>) to handle this layout.
+              </p>
+              <details class="mt-2">
+                <summary class="cursor-pointer">Inspect data</summary>
+                <pre class="mt-2 overflow-auto text-sm">
+                  {JSON.stringify(row.data, null, 2)}
+                </pre>
+              </details>
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 })}

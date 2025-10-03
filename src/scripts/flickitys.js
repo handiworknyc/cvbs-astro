@@ -63,7 +63,7 @@ window.placeDots = function(flkty, module) {
 			if (existingCounter && !dots.contains(existingCounter)) {
 				dots.insertBefore(existingCounter, nextBtn);
 			}
-	
+
 			// Ensure/refresh counter (adds gt8 class and binds updater)
 			ensureSlideCounter(flkty, dots);
 		}
@@ -73,6 +73,10 @@ window.placeDots = function(flkty, module) {
    =========================== */
 function ensureSlideCounter(flkty, dots){
 	if (!flkty || !dots) return;
+
+    if(dots.length == 0) {
+        return;
+    }
 
 	const total = (flkty.slides && flkty.slides.length) || 0;
 
@@ -446,10 +450,8 @@ HW.theHwFlick = function($hwflick){
 		 });
 	 }
 
-	 
-	 
 	 flkty.on('select', function(){
-		 if(flkty.selectedIndex !== 0){
+        if(flkty.selectedIndex !== 0){
 		 	hwAnimateProjectSlideStatsInCell(flkty.selectedElement);			 
 		 }
 	 });
@@ -534,12 +536,6 @@ HW.hwFlick = function() {
 	 };
 
 	 hwFlickInit();
-	 
-
-	 
-	window.addEventListener('resize', function(){
-		hwFlickInit();
-	});	
 };
 
 
@@ -594,6 +590,7 @@ HW.flickUnwrap = function(flicks){
 };
 
 HW.hwFlickInit = function(){
+
 	var $flicks = $$('.flickity-enabled');	
 
 	if($flicks.length > 0) {
@@ -627,8 +624,102 @@ HW.hwFlickInit = function(){
 	HW.requestTimeout(flickme, 100);	
 }
 
-//if(HW.isPostLoadDone == true) {
-	HW.hwFlickInit();	
-//} else {
-	//window.addEventListener('load', HW.hwFlickInit);
-//}
+
+
+// /* ===== Wait-for-.hw-slides + lifecycle coalescer ===== */
+// window.HW = window.HW || {};
+// if (!window.HW.__flickLifecycle) {
+//   window.HW.__flickLifecycle = { bound:false, scheduled:false, running:false, obs:null, timer:null };
+// }
+
+// (function () {
+//   var S = window.HW.__flickLifecycle;
+//   if (S.bound) return;
+//   S.bound = true;
+
+//   function hasSlides() {
+//     return !!document.querySelector('.hw-slides');
+//   }
+
+//   // Run init after DOM settles (double RAF) with a short cooldown
+//   function flushInit() {
+//     if (S.running) return;
+//     S.running = true;
+//     requestAnimationFrame(function () {
+//       requestAnimationFrame(function () {
+//         try {
+//           if (window.HW && typeof window.HW.hwFlickInit === 'function') {
+//             window.HW.hwFlickInit();
+//           }
+//         } catch (e) {
+//           console.error('[HW] hwFlickInit error:', e);
+//         } finally {
+//           setTimeout(function () { S.running = false; }, 80);
+//         }
+//       });
+//     });
+//   }
+
+//   // Schedule a single attempt; if slides aren’t present yet, arm the observer
+//   function scheduleInit() {
+//     if (S.scheduled || S.running) return;
+//     S.scheduled = true;
+//     // microtask collapse
+//     setTimeout(function () {
+//       S.scheduled = false;
+//       if (hasSlides()) {
+//         stopObserver();
+//         flushInit();
+//       } else {
+//         startObserver(); // wait until .hw-slides shows up
+//       }
+//     }, 0);
+//   }
+
+//   function startObserver() {
+//     stopObserver(); // reset any previous
+//     // Safety timeout so we don't observe forever
+//     S.timer = setTimeout(stopObserver, 6000);
+
+//     S.obs = new MutationObserver(function () {
+//       if (hasSlides()) {
+//         stopObserver();
+//         flushInit();
+//       }
+//     });
+
+//     // Observe new children anywhere in the document
+//     S.obs.observe(document.documentElement || document.body, {
+//       childList: true,
+//       subtree: true
+//     });
+//   }
+
+//   function stopObserver() {
+//     if (S.obs) { try { S.obs.disconnect(); } catch(_){} S.obs = null; }
+//     if (S.timer) { clearTimeout(S.timer); S.timer = null; }
+//   }
+
+//   // ---- Event wiring ----
+//   // Astro View Transitions
+//   document.addEventListener('astro:after-swap', scheduleInit);
+//   document.addEventListener('astro:page-load', scheduleInit);
+
+//   // History / bfcache
+//   window.addEventListener('pageshow', function (e) {
+//     if (e && e.persisted) scheduleInit();
+//   });
+//   window.addEventListener('popstate', scheduleInit);
+
+//   // Fallbacks
+//   window.addEventListener('load', scheduleInit);
+//   document.addEventListener('visibilitychange', function () {
+//     if (document.visibilityState === 'visible') scheduleInit();
+//   });
+
+//   // First run
+//   scheduleInit();
+// })();
+
+
+HW.hwFlickInit();

@@ -5,7 +5,8 @@ import { submitJSON } from "@/lib/gf/api";
 function unwrapMaybeJSONString(raw: string): string {
   const s = raw?.trim();
   if (!s) return s;
-  const looksJSONWrapped = s.startsWith('"') && s.endsWith('"') && /\\[nrt"\\/]/.test(s);
+  const looksJSONWrapped =
+    s.startsWith('"') && s.endsWith('"') && /\\[nrt"\\/]/.test(s);
   if (!looksJSONWrapped) return s;
   try {
     return JSON.parse(s);
@@ -28,7 +29,9 @@ function serializeForm(form: HTMLFormElement) {
   for (const [k, v] of fd.entries()) {
     if (payload[k] !== undefined) {
       const prev = payload[k];
-      payload[k] = Array.isArray(prev) ? [...(Array.isArray(prev) ? prev : [prev]), v] : [prev, v];
+      payload[k] = Array.isArray(prev)
+        ? [...(Array.isArray(prev) ? prev : [prev]), v]
+        : [prev, v];
     } else {
       payload[k] = v;
     }
@@ -45,7 +48,9 @@ function clearErrors(root: HTMLElement) {
 
 function showErrors(root: HTMLElement, errors: Record<string, string>) {
   Object.entries(errors).forEach(([name, msg]) => {
-    const input = root.querySelector<HTMLElement>(`[name="${CSS.escape(name)}"]`);
+    const input = root.querySelector<HTMLElement>(
+      `[name="${CSS.escape(name)}"]`
+    );
     const field = (input?.closest?.(".gfield") as HTMLElement) || null;
     const target = field || input || root;
     if (field) field.classList.add("gfield_error", "gfield--error");
@@ -67,18 +72,20 @@ function ensureActiveForFilled(root: ParentNode) {
     else el.closest(".gfield")?.classList.add("active");
   };
 
-  root.querySelectorAll<HTMLInputElement>(".gfield input:not(.datepicker)").forEach((input) => {
-    const hasVal =
-      (input.value ?? "").length > 0 ||
-      (input.getAttribute("value") ?? "").length > 0;
-    if (hasVal) bump(input);
-    else {
-      try {
-        // @ts-ignore – pseudo selector may not be typed
-        if (input.matches(":-webkit-autofill")) bump(input);
-      } catch {}
-    }
-  });
+  root
+    .querySelectorAll<HTMLInputElement>(".gfield input:not(.datepicker)")
+    .forEach((input) => {
+      const hasVal =
+        (input.value ?? "").length > 0 ||
+        (input.getAttribute("value") ?? "").length > 0;
+      if (hasVal) bump(input);
+      else {
+        try {
+          // @ts-ignore – pseudo selector may not be typed
+          if (input.matches(":-webkit-autofill")) bump(input);
+        } catch {}
+      }
+    });
 
   root.querySelectorAll<HTMLTextAreaElement>(".gfield textarea").forEach((ta) => {
     if ((ta.value ?? "").length > 0) ta.closest(".gfield")?.classList.add("active");
@@ -178,10 +185,20 @@ function setupLabelSwapDelegation(host: HTMLElement) {
 
 declare global {
   interface Window {
-    customSelect?: (targets: string | Element[] | NodeListOf<Element>, opts?: any) => {
+    customSelect?: (
+      targets: string | Element[] | NodeListOf<Element>,
+      opts?: any
+    ) => {
       instances: Array<{ render: () => void; destroy: () => void }>;
       renderAll: () => void;
       destroyAll: () => void;
+    };
+    __gfBoot?: {
+      obs: MutationObserver | null;
+      timer: number | null;
+      scheduled: boolean;
+      running: boolean;
+      bootstrapped: boolean;
     };
   }
 }
@@ -309,11 +326,16 @@ declare global {
   function normalizeTargets(targets: any): Element[] {
     if (typeof targets === "string") return Array.from(document.querySelectorAll(targets));
     if (targets instanceof Element) return [targets];
-    if ((NodeList.prototype as any).isPrototypeOf(targets) || Array.isArray(targets)) return Array.from(targets);
+    // NodeList or array-like
+    // @ts-ignore
+    if (targets && typeof targets.length === "number") return Array.from(targets as any);
     return [];
   }
 
-  (window as any).customSelect = function (targets: string | Element[] | NodeListOf<Element>, opts: any = {}) {
+  (window as any).customSelect = function (
+    targets: string | Element[] | NodeListOf<Element>,
+    opts: any = {}
+  ) {
     const options = Object.assign({}, DEFAULTS, opts);
     const nodes = normalizeTargets(targets);
     const instances: Array<{ render: () => void; destroy: () => void }> = [];
@@ -435,8 +457,6 @@ function setSubmitting(wrapper: HTMLElement, on: boolean) {
 
   let spinner = wrapper.querySelector<HTMLElement>(".spinner");
 
-  console.log(wrapper);
-  
   if (on) {
     if (!spinner) {
       spinner = document.createElement("div");
@@ -454,6 +474,7 @@ function setSubmitting(wrapper: HTMLElement, on: boolean) {
 }
 
 function wireSubmit(host: HTMLElement) {
+  if ((host as any)._gfSubmitBound) return;
   host.addEventListener(
     "submit",
     async (ev) => {
@@ -474,7 +495,6 @@ function wireSubmit(host: HTMLElement) {
       submitBtn?.setAttribute("disabled", "true");
 
       const wrapper = getWrapper(form);
-      console.log(wrapper);
       setSubmitting(wrapper, true);
       clearErrors(host);
 
@@ -524,53 +544,195 @@ function wireSubmit(host: HTMLElement) {
     },
     { capture: true }
   );
+  (host as any)._gfSubmitBound = true;
 }
 
-/* -------------------- Entry -------------------- */
+/* -------------------- Core init/teardown used by scheduler -------------------- */
+
+function teardownGF() {
+  // Clean up any existing customSelect on any live hosts
+  const hosts = Array.from(
+    document.querySelectorAll<HTMLElement>(".gf-host[data-gf-form-id]")
+  );
+  hosts.forEach((host) => {
+    const prev: CSHandle | null = (host as any)._customSelectHandle || null;
+    if (prev) {
+      try { prev.destroyAll(); } catch {}
+      (host as any)._customSelectHandle = null;
+    }
+  });
+}
+
+function runGFInitPass() {
+  const hosts = Array.from(
+    document.querySelectorAll<HTMLElement>(".gf-host[data-gf-form-id]")
+  );
+  if (!hosts.length) {
+    // nothing yet; the MutationObserver will try again
+    return;
+  }
+
+  hosts.forEach(async (host) => {
+    const formId = Number(host.dataset.gfFormId || "0");
+    const hasForm = !!host.querySelector("form");
+
+    // Always ensure we don't have a stale customSelect instance before (re)applying
+    const prev: CSHandle | null = (host as any)._customSelectHandle || null;
+    if (prev) { try { prev.destroyAll(); } catch {} }
+    (host as any)._customSelectHandle = null;
+
+    if (!hasForm && formId > 0) {
+      try {
+        await fetchRenderInto(host, formId);
+      } catch (e) {
+        console.error("[GFForm] client render failed", e);
+        host.innerHTML =
+          '<div class="gf-error">Form temporarily unavailable. Please try again later.</div>';
+      }
+    } else {
+      // SSR: decorate existing DOM and bind delegation
+      decorateLabelSwap(host);
+      setupLabelSwapDelegation(host);
+      ensureActiveForFilled(host);
+      setTimeout(() => ensureActiveForFilled(host), 150);
+      setTimeout(() => ensureActiveForFilled(host), 600);
+
+      // Apply customSelect to SSR DOM
+      const cs = applyCustomSelect(host);
+      (host as any)._customSelectHandle = cs;
+    }
+
+    wireSubmit(host);
+  });
+}
+
+/* -------------------- Exported entry + ViewTransition-aware scheduler -------------------- */
 
 export default function initGFClient() {
-  const run = () => {
-    const hosts = Array.from(document.querySelectorAll<HTMLElement>(".gf-host[data-gf-form-id]"));
-    if (!hosts.length) {
-      console.debug("[GFForm] no .gf-host found");
-      return;
-    }
-    console.debug("[GFForm] init on", hosts.length, "host(s)");
+  // run once here for direct usage (e.g., first hydration)
+  scheduleGFInit("direct-call");
+}
 
-    hosts.forEach(async (host) => {
-      const formId = Number(host.dataset.gfFormId || "0");
-      const hasForm = !!host.querySelector("form");
+/* ---------- Scheduler with MutationObserver + VT/popstate hooks ---------- */
 
-      if (!hasForm && formId > 0) {
-        try {
-          await fetchRenderInto(host, formId);
-        } catch (e) {
-          console.error("[GFForm] client render failed", e);
-          host.innerHTML =
-            '<div class="gf-error">Form temporarily unavailable. Please try again later.</div>';
-        }
-      } else {
-        // SSR: decorate existing DOM and bind delegation
-        decorateLabelSwap(host);
-        setupLabelSwapDelegation(host);
-        ensureActiveForFilled(host);
-        setTimeout(() => ensureActiveForFilled(host), 150);
-        setTimeout(() => ensureActiveForFilled(host), 600);
+(function bootstrapGFScheduler() {
+  const TGT = '.gf-host[data-gf-form-id]';
 
-        // Apply customSelect to SSR DOM
-        const prev: CSHandle | null = (host as any)._customSelectHandle || null;
-        if (prev) { try { prev.destroyAll(); } catch {} }
-        const cs = applyCustomSelect(host);
-        (host as any)._customSelectHandle = cs;
-      }
-
-      wireSubmit(host);
-    });
+  // Singleton boot state on window to avoid double wiring across imports
+  window.__gfBoot = window.__gfBoot || {
+    obs: null,
+    timer: null,
+    scheduled: false,
+    running: false,
+    bootstrapped: false
   };
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", run, { once: true });
-  } else {
-    run();
+  const W = window.__gfBoot;
+
+  if (W.bootstrapped) return;
+  W.bootstrapped = true;
+
+  function hasTargets() {
+    return !!document.querySelector(TGT);
   }
+
+  function stopObserver() {
+    if (W.obs) { try { W.obs.disconnect(); } catch {} W.obs = null; }
+    if (W.timer) { clearTimeout(W.timer); W.timer = null; }
+  }
+
+  function flushInit() {
+    if (W.running) return;
+    W.running = true;
+    // double-RAF so DOM is stable after swaps/hydration
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          teardownGF();      // clear stale instances (safe if none)
+          runGFInitPass();   // run actual init pass
+        } catch (e) {
+          console.error("[GFForm] init error:", e);
+        } finally {
+          setTimeout(() => { W.running = false; }, 80); // small cooldown to absorb bursts
+        }
+      });
+    });
+  }
+
+  function startObserver() {
+    stopObserver();
+    // safety stop in case targets never appear
+    W.timer = window.setTimeout(stopObserver, 6000);
+    W.obs = new MutationObserver(() => {
+      if (hasTargets()) {
+        stopObserver();
+        flushInit();
+      }
+    });
+    W.obs.observe(document.documentElement || document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  function schedule() {
+    if (W.scheduled || W.running) return;
+    W.scheduled = true;
+    // microtask collapse
+    setTimeout(() => {
+      W.scheduled = false;
+      if (hasTargets()) {
+        stopObserver();
+        flushInit();
+      } else {
+        startObserver();
+      }
+    }, 0);
+  }
+
+  // Expose schedule for default export call
+  (window as any).scheduleGFInit = schedule;
+
+  // Lifecycle hooks
+//   document.addEventListener("astro:before-swap", () => {
+//     teardownGF();
+//   });
+
+  document.addEventListener("astro:after-swap", () => {
+    setTimeout(schedule, 0);
+  });
+
+  document.addEventListener("astro:page-load", () => {
+    schedule();
+  });
+
+  window.addEventListener("pageshow", (e) => {
+    // bfcache restore
+    // @ts-ignore
+    if (e && e.persisted) schedule();
+  });
+
+  window.addEventListener("popstate", () => {
+    //teardownGF();
+    setTimeout(schedule, 0);
+  });
+
+  // First load
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", schedule, { once: true });
+  } else {
+    schedule();
+  }
+})();
+
+// Minimal ambient declaration so TS is happy when calling from default export
+declare global {
+  interface Window {
+    scheduleGFInit?: (reason?: string) => void;
+  }
+}
+
+// Allow the default export to trigger the scheduler without exposing internals
+function scheduleGFInit(_reason?: string) {
+  window.scheduleGFInit?.(_reason);
 }
