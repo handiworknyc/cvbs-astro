@@ -125,6 +125,49 @@ function stripRedundantFlexWrappers(html: string): string {
   return out;
 }
 
+/* ---------------- Image URL rewrite to local proxy ---------------- */
+
+// Build a srcset string by mapping each URL
+function mapSrcset(srcset: string, mapUrl: (u: string) => string): string {
+  return srcset
+    .split(',')
+    .map(part => {
+      const [url, size] = part.trim().split(/\s+/, 2);
+      return [mapUrl(url), size].filter(Boolean).join(' ');
+    })
+    .join(', ');
+}
+
+// Rewrite any <img src/srcset> that points to the WP host to /api/img?u=<encoded>
+function rewriteImagesToProxy(html: string, wpHost: string): string {
+  if (!html || !wpHost) return html;
+  const $ = cheerio.load(html, { decodeEntities: false });
+
+  const mapUrl = (u: string) => {
+    try {
+      const abs = new URL(u, `https://${wpHost}`);
+      if (abs.hostname !== wpHost) return u; // only rewrite WP-hosted images
+      return `/api/img?u=${encodeURIComponent(abs.toString())}`;
+    } catch {
+      return u;
+    }
+  };
+
+  $("img").each((_, el) => {
+    const $img = $(el);
+
+    // src or data-src
+    const src = $img.attr("src") || $img.attr("data-src");
+    if (src) $img.attr("src", mapUrl(src));
+
+    // srcset or data-srcset
+    const ss = $img.attr("srcset") || $img.attr("data-srcset");
+    if (ss) $img.attr("srcset", mapSrcset(ss, mapUrl));
+  });
+
+  return $.html();
+}
+
 /* ---------------- Cheerio extractors ---------------- */
 
 export function extractBySelector(html: string, selector: string): string {
@@ -205,6 +248,13 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
     html = stripRedundantFlexWrappers(html);
     html = mapKnownClassesInHtml(html);
     html = fixImagesInHtml(html);
+
+    // --- NEW: rewrite WP-hosted images to same-origin proxy (/api/img)
+    let wpHost = "";
+    try { wpHost = new URL(WP_BASE).hostname; } catch {}
+    if (wpHost) {
+      html = rewriteImagesToProxy(html, wpHost);
+    }
 
     return { html, raw: data, url };
   } catch (err: any) {
