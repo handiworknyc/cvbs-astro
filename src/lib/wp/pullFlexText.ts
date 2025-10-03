@@ -1,22 +1,26 @@
-// src/lib/wpPull.ts
+// src/lib/wp/pullFlexText.ts
 // Reusable helpers to pull ACF flex text (or any field) from WP via /wp-json/cv/v1/acf-flex-text
 // NOTE: Run server-side only (frontmatter/SSR). Cheerio won't work in the browser.
 
 import * as cheerio from "cheerio";
-import { getEnv, toBase64 } from "../env.ts"; // <-- path fixed
+import { getEnv, toBase64 } from "../env.ts"; // path is one dir up
 
 export type PullFrom = {
   objectType: "post" | "term";
   objectId: number;
-  taxonomy?: string;   // required for term when objectType === "term"
-  field?: string;      // defaults to "flex_text"
-  selector?: string;   // e.g. "#why-clearview" (server can pre-filter)
-  rowIndex?: number;   // e.g. 3 -> extract element with class "rowindex-3"
+  taxonomy?: string;     // required for term when objectType === "term"
+  field?: string;        // defaults to "flex_text"
+  selector?: string;     // e.g. "#why-clearview" (server can pre-filter)
+  rowIndex?: number;     // e.g. 3 -> extract element with class "rowindex-3"
 };
 
 export type FetchFlexResp = {
-  html: string;        // final HTML (selected.html if server filtered, else post-processed)
-  raw?: any;           // raw JSON (optional debug)
+  html: string;          // final HTML
+  raw?: any;             // raw JSON (optional debug)
+  status?: number;       // HTTP status code on error
+  url?: string;          // request URL
+  error?: string;        // thrown error message (if thrown)
+  peek?: string;         // first 200 chars of error body / response text
 };
 
 const WP_BASE = import.meta.env.WP_BASE_URL || "";
@@ -82,32 +86,25 @@ function fixImagesInHtml(html: string): string {
 }
 
 /* -------------------------------------------------------
- * Strip redundant WP wrappers to avoid duplication with Astro:
- * We repeatedly unwrap:
- *   .flex-module > (.whitebg-1|.mintbg-1) > (.flex-bg-inner|.pr[.ofh]?)
- * and return the **children** of that inner wrapper.
+ * Strip redundant WP wrappers to avoid duplication with Astro
  * ------------------------------------------------------- */
 function stripRedundantFlexWrappers(html: string): string {
   if (!html) return html;
 
   let out = html;
 
-  // Try up to 3 passes in case the snippet itself contains nested copies.
   for (let i = 0; i < 3; i++) {
     const $ = cheerio.load(out, { decodeEntities: false });
 
-    // Find the first flex row wrapper anywhere
     const $base = $(".flex-module").first();
     if (!$base.length) break;
 
-    // We only want to unwrap when it’s using the classic white/mint -> inner structure
     const $outer = $base.children(".whitebg-1, .mintbg-1").first();
     if (!$outer.length) break;
 
     const $inner = $outer.children(".flex-bg-inner, .pr").first();
     if (!$inner.length) break;
 
-    // Grab just the inner payload (children), because Astro provides its own wrapper
     const childrenHtml = $inner
       .contents()
       .toArray()
@@ -118,7 +115,6 @@ function stripRedundantFlexWrappers(html: string): string {
 
     out = childrenHtml;
 
-    // If another wrapper still exists, peel one more layer
     if (out.includes("flex-module") && out.includes("whitebg-1")) {
       continue;
     } else {
@@ -156,7 +152,11 @@ export function extractByRowIndex(html: string, n: number): string {
 /* ---------------- Public API ---------------- */
 
 export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
-  if (!WP_BASE) return { html: "" };
+  if (!WP_BASE) {
+    const msg = "[pullFlexText] Missing WP_BASE_URL env";
+    console.error(msg);
+    return { html: "", error: msg };
+  }
 
   const field = pf.field || "flex_text";
   const qs = new URLSearchParams({
@@ -178,43 +178,39 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
     });
 
     if (!res.ok) {
-      // Helpful peek during debugging; safe to remove later
       const peek = await res.text().catch(() => "");
-      console.error("[wpPull] HTTP", res.status, url, peek.slice(0, 200));
-      return { html: "" };
+      console.error("[pullFlexText] HTTP", res.status, url, peek.slice(0, 200));
+      return { html: "", status: res.status, url, peek: peek.slice(0, 200) };
     }
 
     const data = await res.json();
 
-    // Prefer server-selected HTML if available, else full field HTML.
     let html: string = (data?.selected?.html ?? data?.html) || "";
-    if (!html) return { html: "", raw: data };
+    if (!html) {
+      const msg = "[pullFlexText] Empty HTML in response";
+      console.error(msg, { url, data: JSON.stringify(data)?.slice(0, 200) });
+      return { html: "", raw: data, url, error: msg };
+    }
 
-    // Client-side selector fallback
     if (pf.selector && !data?.selected?.html) {
       const bySel = extractBySelector(html, pf.selector);
       if (bySel) html = bySel;
     }
 
-    // Optional: isolate a single row’s HTML by .rowindex-{n}
     if (Number.isFinite(pf.rowIndex)) {
       const byRow = extractByRowIndex(html, pf.rowIndex as number);
       if (byRow) html = byRow;
     }
 
-    // Remove WP wrappers so your Astro wrappers aren’t duplicated
     html = stripRedundantFlexWrappers(html);
-
-    // Rename container classes (no spacing conversion)
     html = mapKnownClassesInHtml(html);
-
-    // Image attrs
     html = fixImagesInHtml(html);
 
-    return { html, raw: data };
-  } catch (err) {
-    console.error("[wpPull] fetch error", err);
-    return { html: "" };
+    return { html, raw: data, url };
+  } catch (err: any) {
+    const msg = err?.message || String(err);
+    console.error("[pullFlexText] fetch error", msg, { url });
+    return { html: "", error: msg, url };
   }
 }
 

@@ -1,7 +1,9 @@
 ---
 import { fetchFlexText } from "../../lib/wp/pullFlexText";
 
-console.log(Astro.props);
+// Log all incoming props on the server
+console.log("[project_slider] Astro.props:", Astro.props);
+
 // Put the type before usage
 export type PullFrom = {
   objectType: "post" | "term";
@@ -9,6 +11,7 @@ export type PullFrom = {
   taxonomy?: string;   // required when objectType === "term"
   field?: string;      // defaults to "flex_text"
   selector?: string;   // e.g. "#why-clearview"
+  rowIndex?: number;
 };
 
 interface Props {
@@ -18,6 +21,7 @@ interface Props {
   section_id?: string;
   wrapperClasses?: string;
   geo_keyword?: string;
+  rowIndex?: number;
 }
 
 const {
@@ -30,27 +34,52 @@ const {
 } = Astro.props as Props;
 
 let pulledHtml = "";
+let pullDebug: any = null;
 
-// Build our own PullFrom when we only have a postId,
-// and merge with any incoming overrides from `pull_from`
 if (postId) {
-  // Base: use post context + default field
   const basePull: PullFrom = {
     objectType: "post",
     objectId: postId,
     field: "flex_text",
-    rowIndex: Astro.props.rowIndex
-};
+    rowIndex: Astro.props.rowIndex,
+  };
+
   const pulled = await fetchFlexText(basePull);
   pulledHtml = pulled?.html || "";
+  pullDebug = pulled || {};
+
+  // Log the whole thing to the server console too
+  console.log("[project_slider] pull result:", {
+    status: pulled?.status,
+    url: pulled?.url,
+    error: pulled?.error,
+    peek: pulled?.peek,
+    htmlLen: pulledHtml.length,
+  });
 }
 ---
 
 {pulledHtml ? (
-    <Fragment set:html={pulledHtml} />
+  <Fragment set:html={pulledHtml} />
 ) : (
-  // your local render path
   <section id={section_id} class={wrapperClasses} data-geo={geo_keyword}>
     <div>No pulled HTML – render local here.</div>
+
+    {/* Visible debug panel for live Netlify troubleshooting */}
+    <div style="margin-top:1rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
+      <div><strong>WP_BASE_URL:</strong> {import.meta.env.WP_BASE_URL || "(not set)"}</div>
+      <div><strong>postId:</strong> {String(postId)}</div>
+      <div><strong>rowIndex:</strong> {String(Astro.props.rowIndex ?? "")}</div>
+      {pullDebug && (
+        <details open>
+          <summary><strong>Pull Debug</strong></summary>
+          <div><strong>status:</strong> {String(pullDebug.status ?? "")}</div>
+          <div><strong>url:</strong> {String(pullDebug.url ?? "")}</div>
+          <div><strong>error:</strong> {String(pullDebug.error ?? "")}</div>
+          <div><strong>peek:</strong> {String(pullDebug.peek ?? "").slice(0, 300)}</div>
+          <div><strong>raw keys:</strong> {pullDebug.raw ? Object.keys(pullDebug.raw).join(", ") : "(none)"} </div>
+        </details>
+      )}
+    </div>
   </section>
 )}
