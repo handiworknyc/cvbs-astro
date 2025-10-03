@@ -2481,8 +2481,11 @@ html {
 
 
 
-
-
+.logo-slide,
+.logo-slider,
+.logo-slider-outer {
+  min-height: 4rem;
+} 
 .service-area-banner-logos .mq-wrap {
   position: absolute;
 }
