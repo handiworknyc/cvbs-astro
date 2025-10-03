@@ -2488,6 +2488,7 @@ html {
 
 .service_area_banner-module {
   overflow: hidden;
+  z-index: 99;
 }
 
 .tax-service-banner {
@@ -2931,7 +2932,11 @@ html {
   margin-block: 1.5rem;
 
   .logo-slide {
-    min-width: 175px;
+    min-width: 150px;
+  }
+
+  .logo-slide-inner {
+    padding: 0 1rem;
   }
 
   .eyebrow {

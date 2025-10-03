@@ -1,298 +1,280 @@
 ---
+// src/components/flex/service_area_banner.astro
 /**
- * service_area_banner.astro
- * Uses the HOME BANNER infra: /astro/v1/featured/batch, enrichWithPrimaryTerms, SmartImage, toImagesMap.
+ * Pulls a service-area banner from WP, strips ALL Gravity Forms markup,
+ * extracts GF form id from the WP markup, and injects Astro <GFForm /> instead.
+ *
+ * What we do:
+ *  - Parse pulled HTML with cheerio
+ *  - Find `.service-area-banner-form-wrap`
+ *  - Inside it, locate the first <form> (WordPress GF form)
+ *      • Extract formId from: id="gform_#", data-formid="#", or target="gform_ajax_frame_#"
+ *  - Preserve ONLY `.form-intro-text` contents
+ *  - Replace the entire wrapper with a placeholder marker
+ *  - Render a clean `.service-area-banner-form-wrap` at that marker with:
+ *      [intro html] + <GFForm formId={gfFormId ?? extracted} />
  */
 
-import SmartImage from "@ui/SmartImage.astro";
-import { toImagesMap } from "@images";
-import { enrichWithPrimaryTerms } from "src/lib/wp/taxonomy";
 import GFForm from "@/components/GFForm.astro";
-import { authHeaders } from "@/pages/api/news.json";
+import { fetchFlexText } from "../../lib/wp/pullFlexText";
+import * as cheerio from "cheerio";
 
-// ---------- Types ----------
-type Img = { src: string; alt?: string };
-type AnyRec = Record<string, any>;
-
-type ImageRow = {
-  acf_fc_layout: "image";
-  image?: {
-    // ACF image-ish shapes
-    id?: number | string;
-    ID?: number | string;
-    alt?: string;
-    title?: string;
-    url?: string;
-    src?: string;
-    sizes?: Record<string, string>;
-    media_details?: { sizes?: Record<string, { source_url: string }> };
-  } | null;
+// ---------------------------------------------
+// Types
+// ---------------------------------------------
+export type PullFrom = {
+  objectType: "post" | "term";
+  objectId?: number;
+  taxonomy?: string;    // required if objectType === "term"
+  field?: string;       // defaults to "flex_text"
+  selector?: string;
+  rowIndex?: number;    // 1-based
 };
-
-type ProjectRow = {
-  acf_fc_layout: "project";
-  project?: {
-    ID?: number;
-    id?: number;
-    post_title?: string;
-    title?: string;
-    // OPTIONAL helpers your API might already include:
-    featured_media_url?: string;
-    featured_src?: string;
-    featured_sizes?: Record<string, string>;
-    logoSrc?: string | null;
-  } | null;
-};
-
-type Row = ImageRow | ProjectRow;
 
 interface Props {
-  gravity_forms_id?: string | number;
-  banner_title?: string;     // may contain CRLF
-  banner_text?: string;      // HTML
-  images?: Row[];
-  featuredSize?: string;     // optional override (default intch_med)
-  wpBase?: string;           // pass-through to GFForm
+  // Pull context
+  postId?: number | null;
+  currentPost?: any;
+  termId?: number | null;
+  taxonomy?: string | null; // e.g., "service-area"
+
+  // Section plumbing
+  section_id?: string;
+  wrapperClasses?: string;
+  rowIndex?: number;
+
+  // GF form to render (optional; if omitted we extract from WP form)
+  gfFormId?: number;
+
+  geo_keyword?: string;
 }
 
+// ---------------------------------------------
+// Props
+// ---------------------------------------------
 const {
-  gravity_forms_id,
-  banner_title = "",
-  banner_text = "",
-  images = [],
-  featuredSize = "intch_med",
-  wpBase,
+  postId = null,
+  currentPost = null,
+  termId = null,
+  taxonomy = null,
+  section_id = "",
+  wrapperClasses = "",
+  rowIndex = Astro.props.rowIndex as number | undefined,
+  gfFormId = undefined,
+  geo_keyword = "",
 } = Astro.props as Props;
 
-// ---------- Utils (same style as Home Banner) ----------
-function coerceId(v: unknown): number | null {
-  if (v == null || v === "") return null;
-  const n = typeof v === "string" ? parseInt(v, 10) : Number(v);
+// ---------------------------------------------
+// Pull from WP
+// ---------------------------------------------
+let pulledHtml = "";
+let pullDebug: any = null;
+
+let effectivePull: PullFrom | null = null;
+
+if (termId && taxonomy) {
+  effectivePull = {
+    objectType: "term",
+    objectId: termId,
+    taxonomy: String(taxonomy),
+    field: "flex_text",
+    rowIndex,
+  };
+} else if (postId) {
+  effectivePull = {
+    objectType: "post",
+    objectId: postId,
+    field: "flex_text",
+    rowIndex,
+  };
+}
+
+if (effectivePull) {
+  const pulled = await fetchFlexText(effectivePull);
+  pulledHtml = pulled?.html || "";
+  pullDebug = pulled || {};
+
+  console.log("[service_area_banner] pull result:", {
+    mode: effectivePull.objectType,
+    taxonomy: effectivePull.taxonomy || null,
+    objectId: effectivePull.objectId ?? null,
+    status: pulled?.status,
+    url: pulled?.url,
+    error: pulled?.error,
+    peek: pulled?.peek,
+    htmlLen: pulledHtml.length,
+  });
+} else {
+  console.warn("[service_area_banner] No valid pull context (need postId OR {termId,taxonomy}).", {
+    postId,
+    termId,
+    taxonomy,
+  });
+}
+
+// ---------------------------------------------
+// Helpers
+// ---------------------------------------------
+function coerceInt(v?: string | null): number | null {
+  if (!v) return null;
+  const n = parseInt(String(v), 10);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-const WP_BASE = import.meta.env.WP_BASE_URL as string | undefined;
-
-// Split title into lines (mirrors PHP explode on PHP_EOL)
-function splitLines(s: string): string[] {
-  return String(s || "").split(/\r?\n/).map(v => v.trim()).filter(Boolean);
-}
-const titleLines = splitLines(banner_title);
-
-function renderTitleHTML(lines: string[]) {
-  if (lines.length <= 1) return lines[0] || "";
-  return lines.map((ln, i) => {
-    // If you want the marker on line 2, add "icon-marker" here:
-    // const cls = i === 1 ? "icon-marker" : "";
-    const cls = "";
-    return `<span class="block ${cls}">${ln}</span>`;
-  }).join("");
-}
-
-// ---------- Build a project-like array so we can reuse the exact HOME pipeline ----------
-type Normalized = {
-  // Align with what Home Banner enriches:
-  projectId?: number;
-  title?: string;
-  tag?: string | null;
-  location?: string | null;
-  logoSrc?: string | null;
-  // For ACF image rows (non-project), we can carry an existing image:
-  image?: Img | null;
-  // For rendering overlay:
-  __isProject: boolean;
-};
-
-// Pull a best-guess URL from an ACF image object
-function pickSizeFromACFImage(img?: AnyRec): string | null {
-  if (!img) return null;
-  const sizes: AnyRec | undefined = img.sizes ?? img.media_details?.sizes;
-  if (sizes) {
-    for (const key of [featuredSize, "medium_large", "large", "medium", "intch_med", "intch_sm"]) {
-      const v = sizes[key];
-      if (!v) continue;
-      if (typeof v === "string") return v;
-      if (v?.source_url) return v.source_url;
-    }
-  }
-  return img.url || img.src || null;
-}
-
-function pickAltFromACFImage(img?: AnyRec): string {
-  return (img?.alt || img?.title || "") ?? "";
-}
-
-const normalized: Normalized[] = images.map((row) => {
-  if (row?.acf_fc_layout === "project") {
-    const p = (row as ProjectRow).project || {};
-    return {
-      projectId: p.ID ?? p.id ?? null,
-      title: p.post_title ?? p.title ?? "",
-      tag: null,
-      location: null,
-      logoSrc: p.logoSrc ?? null,
-      image: null,
-      __isProject: true,
-    };
+function extractGFormIdFromAttrs(formEl: cheerio.Cheerio<any>): number | null {
+  // Try id="gform_1"
+  const idAttr = formEl.attr("id"); // e.g., "gform_1"
+  if (idAttr) {
+    const m = idAttr.match(/gform_(\d+)/i);
+    const n = coerceInt(m?.[1] || null);
+    if (n) return n;
   }
 
-  // Plain image row
-  const img = (row as ImageRow).image || {};
-  const src = pickSizeFromACFImage(img);
-  const alt = pickAltFromACFImage(img);
-  return {
-    projectId: undefined,
-    title: "", // no project title for pure image rows
-    tag: null,
-    location: null,
-    logoSrc: null,
-    image: src ? { src, alt } : null,
-    __isProject: false,
-  };
-});
+  // Try data-formid="1"
+  const dataId = formEl.attr("data-formid");
+  const n2 = coerceInt(dataId || null);
+  if (n2) return n2;
 
-// ---------- Resolve featured images for *project rows* via the SAME batch endpoint ----------
-let featured: Record<number, { src: string; alt?: string; width?: number; height?: number } | null> = {};
-const projectIds = normalized.map(n => n.projectId).filter(Boolean) as number[];
+  // Try target="gform_ajax_frame_1"
+  const targetAttr = formEl.attr("target");
+  if (targetAttr) {
+    const m2 = targetAttr.match(/gform_ajax_frame_(\d+)/i);
+    const n3 = coerceInt(m2?.[1] || null);
+    if (n3) return n3;
+  }
 
-if (projectIds.length && WP_BASE) {
+  // As a last resort, look for hidden input "gform_submit" or "gform_unique_id" style hints
+  const hiddenSubmit = formEl.find('input[name="gform_submit"], input[name="form_id"]')
+    .first()
+    .attr("value");
+  const n4 = coerceInt(hiddenSubmit || null);
+  if (n4) return n4;
+
+  return null;
+}
+
+// ---------------------------------------------
+// Process HTML: strip WP GF form, keep intro, re-insert <GFForm/>
+// ---------------------------------------------
+let introHtml = "";
+let beforeHtml = "";
+let afterHtml = "";
+let didReplaceAtMarker = false;
+
+// Will be set if we can extract from the pulled form
+let extractedFormId: number | null = null;
+
+if (pulledHtml) {
   try {
-    const base = WP_BASE.replace(/\/+$/, "");
-    const url = new URL("/wp-json/astro/v1/featured/batch", base);
-    url.searchParams.set("ids", projectIds.join(","));
-    url.searchParams.set("size", featuredSize);
+    // Parse as a fragment
+    const $ = cheerio.load(pulledHtml, { decodeEntities: false });
 
-    const res = await fetch(url.toString(), { headers: { ...authHeaders() } });
-    if (res.ok) {
-      featured = await res.json();
+    const $wrap = $(".service-area-banner-form-wrap").first();
+
+    if ($wrap.length) {
+      // Find first <form> within this wrapper (GF markup)
+      const $form = $wrap.find("form").first();
+
+      if ($form.length) {
+        extractedFormId = extractGFormIdFromAttrs($form);
+        console.log("[service_area_banner] Extracted GF form id:", extractedFormId);
+      } else {
+        console.log("[service_area_banner] No <form> found inside .service-area-banner-form-wrap.");
+      }
+
+      // Extract ONLY the intro HTML
+      const $intro = $wrap.find(".form-intro-text").first();
+      introHtml = $intro.length ? ($intro.html() ?? "") : "";
+
+      // Replace the whole wrapper with a placeholder marker (we'll render our clean version there)
+      const MARK = "<!--ASTRO_FORM_WRAP_MARK-->";
+      $wrap.replaceWith(MARK);
+
+      // Get processed HTML string (with marker)
+      const processed = $.root().html() ?? "";
+
+      const parts = processed.split("<!--ASTRO_FORM_WRAP_MARK-->");
+      if (parts.length >= 2) {
+        beforeHtml = parts[0];
+        afterHtml = parts.slice(1).join("<!--ASTRO_FORM_WRAP_MARK-->"); // Support multiple just in case
+        didReplaceAtMarker = true;
+      } else {
+        // Marker not found (unexpected): fallback to just removing the wrapper and append our form after all content.
+        beforeHtml = processed;
+        afterHtml = "";
+      }
+    } else {
+      // No wrapper present; we won't modify pulledHtml
+      beforeHtml = pulledHtml;
+      afterHtml = "";
     }
-  } catch (e) {
-    console.warn("[service_area_banner] featured batch failed:", e);
+  } catch (err) {
+    console.error("[service_area_banner] Cheerio processing error:", err);
+    // On error, fall back to raw
+    beforeHtml = pulledHtml;
+    afterHtml = "";
   }
 }
 
-// ---------- Enrich project rows with primary terms (service = tag, service-area = location) ----------
-let rows = normalized;
-try {
-  rows = (await Promise.race([
-    enrichWithPrimaryTerms(normalized, { tagTax: "service", locationTax: "service-area" }),
-    new Promise((r) => setTimeout(() => r(normalized), 5000)),
-  ])) as typeof normalized;
-} catch (e) {
-  console.warn("[service_area_banner] enrichWithPrimaryTerms failed:", e);
-  rows = normalized;
-}
-
-// ---------- Build render items (mix project + image rows) ----------
-type RenderItem = {
-  // responsive image:
-  images: ReturnType<typeof toImagesMap>;
-  // overlay (only meaningful for project rows; image rows show nothing by default)
-  overlayTitle?: string;
-  overlayLocation?: string | null;
-};
-
-const renderItems: RenderItem[] = rows.map((r) => {
-  // If project: prefer resolved featured
-  if (r.__isProject && r.projectId && featured[r.projectId]) {
-    const entry = featured[r.projectId];
-    const images = toImagesMap(entry); // same as Home Banner
-    return {
-      images,
-      overlayTitle: r.title || "",
-      overlayLocation: r.location || null,
-    };
-  }
-
-  // If plain image: use the given image (no responsive variants—let toImagesMap infer a simple map)
-  if (r.image?.src) {
-    const images = toImagesMap({ sizes: { xl: r.image.src } });
-    return {
-      images,
-      overlayTitle: "",          // No project title for plain image rows
-      overlayLocation: null,     // No location for plain image rows
-    };
-  }
-
-  // Fallback empty
-  return { images: toImagesMap(null) };
-});
-
-// Any items with at least one size?
-const hasAnyImage = renderItems.some(ri => ri.images && (ri.images.xl || ri.images.large || ri.images.med || ri.images.small));
+// Final ID to use for GFForm:
+const resolvedGfFormId: number | undefined =
+  (gfFormId ?? extractedFormId ?? undefined);
 ---
 
-<div class="rowindex-1 service-area-banner">
-  <div class="hw-contain flex-wrap tal service-area-banner-flex">
-    <!-- LEFT: Title / Text / Form -->
-    <div class="service-area-banner-half-text">
-      <h1
-        class="service-area-banner-title-half lilblur round-vw-lh"
-        set:html={renderTitleHTML(splitLines(banner_title))}
-      />
+{pulledHtml ? (
+  <>
+    {/* Part before the form wrapper (or entire doc if no wrapper) */}
+    {beforeHtml && <Fragment set:html={beforeHtml} />}
 
-      {banner_text && (
-        <div class="service-area-banner-desc round-vw-lh" set:html={banner_text} />
-      )}
+    {/* Our clean replacement only if we found & replaced the wrapper */}
+    {didReplaceAtMarker && (
+      <div class="service-area-banner-form-wrap banner-form-wrap" data-astro-form-wrap data-source="astro">
+        {/* Preserve ONLY the intro block's inner HTML */}
+        {introHtml && <div class="form-intro-text tac mb2" set:html={introHtml} />}
 
-      <div class="service-area-banner-form-wrap banner-form-wrap">
-        <div class="form-intro-text mb-8 tac">
-          Get your <span class="dotted-underline inline-block c-redaccent">no-obligation</span> estimate by filling out&nbsp;the form:
-        </div>
-
-        <div class="banner-form-inner">
-          {coerceId(gravity_forms_id) && (
+        {/* Append Astro GFForm component using resolved id */}
+        {resolvedGfFormId && (
+          <div class="banner-form-inner">
             <GFForm
-              formId={coerceId(gravity_forms_id)}
-              wpBase={wpBase}
+              formId={resolvedGfFormId}
+              wpBase={import.meta.env.WP_BASE_URL || ""}
               showTitle={false}
               showDescription={false}
               theme="gravity-theme"
               ajax={false}
               viaProxy={true}
             />
-          )}
-        </div>
+          </div>
+        )}
       </div>
+    )}
+
+    {/* Remaining part after the wrapper */}
+    {afterHtml && <Fragment set:html={afterHtml} />}
+  </>
+) : (
+  <section id={section_id} class={wrapperClasses} data-geo={geo_keyword}>
+    <div>No pulled HTML – render local here.</div>
+
+    {/* Visible debug panel for live Netlify troubleshooting */}
+    <div style="margin-top:1rem; padding:1rem; border:1px dashed #c33; background:#fff3f3; font-family:monospace; font-size:.9rem;">
+      <div><strong>WP_BASE_URL:</strong> {import.meta.env.WP_BASE_URL || "(not set)"} </div>
+      <div><strong>mode:</strong> {termId && taxonomy ? "taxonomy" : postId ? "page" : "none"} </div>
+      <div><strong>taxonomy:</strong> {String(taxonomy ?? "")}</div>
+      <div><strong>termId:</strong> {String(termId ?? "")}</div>
+      <div><strong>postId:</strong> {String(postId ?? "")}</div>
+      <div><strong>rowIndex:</strong> {String(rowIndex ?? "")}</div>
+      <div><strong>resolvedGfFormId:</strong> {String(resolvedGfFormId ?? "")}</div>
+      {pullDebug && (
+        <details open>
+          <summary><strong>Pull Debug</strong></summary>
+          <div><strong>status:</strong> {String(pullDebug.status ?? "")}</div>
+          <div><strong>url:</strong> {String(pullDebug.url ?? "")}</div>
+          <div><strong>error:</strong> {String(pullDebug.error ?? "")}</div>
+          <div><strong>peek:</strong> {String(pullDebug.peek ?? "").slice(0, 300)}</div>
+          <div><strong>raw keys:</strong> {pullDebug.raw ? Object.keys(pullDebug.raw).join(", ") : "(none)"} </div>
+        </details>
+      )}
     </div>
-
-    <!-- RIGHT: Image stack (project overlays optional) -->
-    <div class="service-area-banner-img-wrap">
-      {hasAnyImage &&
-        renderItems.map((ri, i) => {
-          const hasImg = ri.images && (ri.images.xl || ri.images.large || ri.images.med || ri.images.small);
-
-          if (!hasImg) return null;
-
-          return (
-            <div class="service-area-banner-image flex-wrap ofh pr" key={`sa-img-${i}`}>
-              {(ri.overlayTitle || ri.overlayLocation) && (
-                <div class="c-white abs-full proj-overlay-text flex-wrap tal">
-                  <div>
-                    {ri.overlayTitle && <h3 class="caps">{ri.overlayTitle}</h3>}
-                    {ri.overlayLocation && <h4 class="icon-marker reg">{ri.overlayLocation}</h4>}
-                  </div>
-                </div>
-              )}
-
-              <SmartImage
-                images={ri.images}
-                sizes="(min-width: 1024px) 50vw, 100vw"
-                alt=""              // overlay carries title/location; featured batch returns alt if you want to pass it into toImagesMap
-                critical={i === 0}  // first one critical for LCP
-                imgClass="service-area-banner-img abs obj-cover"
-              />
-            </div>
-          );
-        })
-      }
-    </div>
-  </div>
-
-  <script>
-    // parity with legacy helper
-    if (window?.HW?.setElementHeightVar) {
-      window.HW.setElementHeightVar('.service-area-banner-title-half');
-    }
-  </script>
-</div>
+  </section>
+)}

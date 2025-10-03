@@ -235,6 +235,22 @@ a.img-card-item .img-card-inner,
     margin-bottom: 1rem;
 }
 
+.mt2 {
+    margin-top: 2rem;
+}
+
+.pt1 {
+    padding-top: 1rem;
+}
+
+.pt1h {
+    padding-top: 1.5rem;
+}
+
+.pbh {
+    padding-bottom: .5rem;
+}
+
 .mb2 {
     margin-bottom: 2rem;
 }
@@ -281,6 +297,11 @@ a.img-card-item .img-card-inner,
     }
 }
 
+@media (min-width: 760px) {
+    .pt1h-760 {
+        padding-top: 1.5rem
+    }
+}
 @media (min-width: 1025px) {
     .mb8-1025 {
         margin-bottom: 8rem;

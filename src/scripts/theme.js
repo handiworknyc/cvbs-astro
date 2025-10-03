@@ -294,136 +294,168 @@ HW._mqWrapCache	= HW._mqWrapCache || new Map();	// key: el.id, value: sanitized 
 			cursor += widths[i];
 		}
 	}
-	
-	function executeMarqueeLogic(me) {
-		const myid = me.id || (me.id = 'mq-' + Math.random().toString(36).slice(2, 11));
-		const items = me.querySelectorAll('.mq-item');
-		const itemCount = items.length;
-		if (!itemCount) return;
-	
-		let mydur = parseFloat(me.getAttribute('data-dur') || '45.25');
-	
-		// clear any previous inline styles via GSAP
-		gsap.set(me, { clearProps: true });
-		gsap.set(items, { clearProps: true });
-	
-		// ---- MEASURE (reads) ----
-		const { widths, heights, totalX, tallest } = measureItems(me, items);
-	
-		// ---- early exit: not enough width to marquee ----
-		const outerPar = me.closest('.mq-outer') || me.parentElement;
-		const containerWidth = outerPar ? outerPar.clientWidth : window.innerWidth;
-		if (totalX <= (containerWidth - 100) && !me.classList.contains('always-mq')) {
-			me.classList.remove('has-slider');
-			me.classList.add('no-slider');
-			outerPar && outerPar.classList.add('no-slider');
-			// clean any previous timeline/trigger
-			if (HW.mqTls[myid]) { HW.mqTls[myid].kill(); delete HW.mqTls[myid]; }
-			if (HW.mqSts[myid]) { HW.mqSts[myid].kill(); delete HW.mqSts[myid]; }
-			return;
+
+	// Helper: allow overriding ScrollTrigger start/end via data attributes with sensible defaults
+function parseSTBounds(el, defStart, defEnd) {
+	const DEF_START = defStart || 'top bottom-=30%';
+	const DEF_END   = defEnd   || 'bottom top+=35%';
+
+	// prefer explicit attributes
+	let start = el.getAttribute('data-st-start') ?? el.dataset?.stStart ?? '';
+	let end   = el.getAttribute('data-st-end')   ?? el.dataset?.stEnd   ?? '';
+
+	// allow a single combined attribute: data-st="START | END" or "START, END"
+	const combined = el.getAttribute('data-st') ?? '';
+	if ((!start || !start.trim()) || (!end || !end.trim())) {
+		if (combined && combined.trim()) {
+			let parts = combined.split('|');
+			if (parts.length < 2) parts = combined.split(',');
+			if (parts.length >= 2) {
+				start = start && start.trim() ? start : parts[0].trim();
+				end   = end   && end.trim()   ? end   : parts[1].trim();
+			}
 		}
-	
-		// ---- WRITES ----
-		// item placement
-		writeItemLayout(me, items, widths, tallest);
-	
-		// outer height (use computed paddings once)
-		const cs = getComputedStyle(me);
-		const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-		const totalH = tallest + pad;
-		outerPar && gsap.set(outerPar, { height: totalH > 0 ? totalH : 'auto' });
-	
-		// ensure classes
-		me.classList.remove('no-slider');
-		me.classList.add('has-slider');
-		outerPar && outerPar.classList.remove('no-slider');
-	
-		// kill previous TL / ST for this id (if any)
+	}
+
+	start = (start && start.trim()) ? start.trim() : DEF_START;
+	end   = (end   && end.trim())   ? end.trim()   : DEF_END;
+
+	return { start, end };
+}
+
+function executeMarqueeLogic(me) {
+	const myid = me.id || (me.id = 'mq-' + Math.random().toString(36).slice(2, 11));
+	const items = me.querySelectorAll('.mq-item');
+	const itemCount = items.length;
+	if (!itemCount) return;
+
+	console.log(me);
+	console.log('1231312asdassd');
+	let mydur = parseFloat(me.getAttribute('data-dur') || '45.25');
+
+	// clear any previous inline styles via GSAP
+	gsap.set(me, { clearProps: true });
+	gsap.set(items, { clearProps: true });
+
+	// ---- MEASURE (reads) ----
+	const { widths, heights, totalX, tallest } = measureItems(me, items);
+
+	// ---- early exit: not enough width to marquee ----
+	const outerPar = me.closest('.mq-outer') || me.parentElement;
+	const containerWidth = outerPar ? outerPar.clientWidth : window.innerWidth;
+	if (totalX <= (containerWidth - 100) && !me.classList.contains('always-mq')) {
+		me.classList.remove('has-slider');
+		me.classList.add('no-slider');
+		outerPar && outerPar.classList.add('no-slider');
+		// clean any previous timeline/trigger
 		if (HW.mqTls[myid]) { HW.mqTls[myid].kill(); delete HW.mqTls[myid]; }
 		if (HW.mqSts[myid]) { HW.mqSts[myid].kill(); delete HW.mqSts[myid]; }
-	
-		// build loop timeline (paused; draggable true)
-		HW.mqTls[myid] = horizontalLoop(items, {
-			paused: true,
-			draggable: true,
-			snap: false
-		});
-	
-		// optional: primer seek to avoid identical start
-		HW.mqTls[myid].seek(6);
-	
-		// build a single ST tied to this marquee
-		HW.mqSts[myid] = ScrollTrigger.create({
-			id: 'st-' + myid,
-			trigger: me,
-			start: 'top bottom-=30%',
-			end: 'bottom top+=35%',
-			onEnter:	 () => HW.mqTls[myid] && HW.mqTls[myid].play(),
-			onEnterBack: () => HW.mqTls[myid] && HW.mqTls[myid].play(),
-			onLeave:	 () => HW.mqTls[myid] && HW.mqTls[myid].pause(),
-			onLeaveBack: () => HW.mqTls[myid] && HW.mqTls[myid].pause()
-		});
+		return;
 	}
-	
-	// Utility: check min/max classes once
-	function passesBreakpoint(me, ww) {
-		const cls = me.className;
-		const min = cls.match(/mq-wrap-min-(\d+)/);
-		if (min && ww >= parseInt(min[1], 10)) return true;
-		const max = cls.match(/mq-wrap-max-(\d+)/);
-		if (max && ww <= parseInt(max[1], 10)) return true;
-		if (!min && !max) return true;
-		return false;
-	}
-	
-	HW.mqInit = function() {
-		const doIt = function() {
-			// Kill previous timelines & triggers in O(n)
-			killAllTimelines();
-	
-			const ww = window.innerWidth;
-			let $mqs = $mqsInit();
-	
-			if (!$mqs.length) return;
-	
-			// first-run sanitize/cache (once per element lifetime)
-			if (!HW.didMqCache) {
-				$mqs.forEach(me => cacheMqOuterHTML(me));
-				HW.didMqCache = true;
-			} else {
-				// fast restore from cache (only if element still mounted)
-				HW._mqWrapCache.forEach((_, id) => restoreFromCache(id));
-				$mqs = $mqsInit(); // re-query after restore
-				// any dependent inline inits
-				HW.hwIntchInit && HW.hwIntchInit();
-			}
-	
-			// Loop marquees once, minimal reads/writes inside execute
-			$mqs.forEach(me => {
-				const outerPar = me.closest('.mq-outer') || me.parentElement;
-	
-				if (passesBreakpoint(me, ww)) {
-					me.classList.remove('no-slider');
-					outerPar && outerPar.classList.remove('no-slider');
-					executeMarqueeLogic(me);
-				} else {
-					me.classList.add('no-slider');
-					outerPar && outerPar.classList.add('no-slider');
-					gsap.set(me, { clearProps: true });
-					gsap.set(me.querySelectorAll('.mq-item'), { clearProps: true });
-				}
-	
-				me.classList.remove('first-load');
-			});
-		};
-	
-		// tiny debounce to allow layout settle (fonts/images)
-		HW.requestTimeout ? HW.requestTimeout(doIt, 100) : setTimeout(doIt, 100);
-	};
-	
-	// Initial run
-	HW.mqInit();
 
+	// ---- WRITES ----
+	// item placement
+	writeItemLayout(me, items, widths, tallest);
+
+	// outer height (use computed paddings once)
+	const cs = getComputedStyle(me);
+	const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+	const totalH = tallest + pad;
+	outerPar && gsap.set(outerPar, { height: totalH > 0 ? totalH : 'auto' });
+
+	// ensure classes
+	me.classList.remove('no-slider');
+	me.classList.add('has-slider');
+	outerPar && outerPar.classList.remove('no-slider');
+
+	// kill previous TL / ST for this id (if any)
+	if (HW.mqTls[myid]) { HW.mqTls[myid].kill(); delete HW.mqTls[myid]; }
+	if (HW.mqSts[myid]) { HW.mqSts[myid].kill(); delete HW.mqSts[myid]; }
+
+	// build loop timeline (paused; draggable true)
+	HW.mqTls[myid] = horizontalLoop(items, {
+		paused: true,
+		draggable: true,
+		snap: false
+	});
+
+	// optional: primer seek to avoid identical start
+	HW.mqTls[myid].seek(6);
+
+	// resolve start/end from data-* (with defaults)
+	const { start, end } = parseSTBounds(me, 'top bottom-=30%', 'bottom top+=35%');
+
+	// build a single ST tied to this marquee
+	HW.mqSts[myid] = ScrollTrigger.create({
+		id: 'st-' + myid,
+		trigger: me,
+		start,
+		end,
+		onEnter:     () => HW.mqTls[myid] && HW.mqTls[myid].play(),
+		onEnterBack: () => HW.mqTls[myid] && HW.mqTls[myid].play(),
+		onLeave:     () => HW.mqTls[myid] && HW.mqTls[myid].pause(),
+		onLeaveBack: () => HW.mqTls[myid] && HW.mqTls[myid].pause()
+	});
+}
+
+// Utility: check min/max classes once
+function passesBreakpoint(me, ww) {
+	const cls = me.className;
+	const min = cls.match(/mq-wrap-min-(\d+)/);
+	if (min && ww >= parseInt(min[1], 10)) return true;
+	const max = cls.match(/mq-wrap-max-(\d+)/);
+	if (max && ww <= parseInt(max[1], 10)) return true;
+	if (!min && !max) return true;
+	return false;
+}
+
+HW.mqInit = function() {
+	const doIt = function() {
+		// Kill previous timelines & triggers in O(n)
+		killAllTimelines();
+
+		const ww = window.innerWidth;
+		let $mqs = $mqsInit();
+
+		if (!$mqs.length) return;
+
+		// first-run sanitize/cache (once per element lifetime)
+		if (!HW.didMqCache) {
+			$mqs.forEach(me => cacheMqOuterHTML(me));
+			HW.didMqCache = true;
+		} else {
+			// fast restore from cache (only if element still mounted)
+			HW._mqWrapCache.forEach((_, id) => restoreFromCache(id));
+			$mqs = $mqsInit(); // re-query after restore
+			// any dependent inline inits
+			HW.hwIntchInit && HW.hwIntchInit();
+		}
+
+		// Loop marquees once, minimal reads/writes inside execute
+		$mqs.forEach(me => {
+			const outerPar = me.closest('.mq-outer') || me.parentElement;
+
+			if (passesBreakpoint(me, ww)) {
+				me.classList.remove('no-slider');
+				outerPar && outerPar.classList.remove('no-slider');
+				executeMarqueeLogic(me);
+			} else {
+				me.classList.add('no-slider');
+				outerPar && outerPar.classList.add('no-slider');
+				gsap.set(me, { clearProps: true });
+				gsap.set(me.querySelectorAll('.mq-item'), { clearProps: true });
+			}
+
+			me.classList.remove('first-load');
+		});
+	};
+
+	// tiny debounce to allow layout settle (fonts/images)
+	HW.requestTimeout ? HW.requestTimeout(doIt, 100) : setTimeout(doIt, 100);
+};
+
+// Initial run
+HW.mqInit();
 
 
 
