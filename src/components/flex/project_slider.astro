@@ -55,6 +55,7 @@ if (termId && taxonomy) {
     objectId: termId,
     taxonomy: String(taxonomy),
     field: "flex_text",
+    imageLoading: "eager",
     rowIndex,
   };
 } else if (postId) {
@@ -62,6 +63,7 @@ if (termId && taxonomy) {
     objectType: "post",
     objectId: postId,
     field: "flex_text",
+    imageLoading: "eager",
     rowIndex,
   };
 }

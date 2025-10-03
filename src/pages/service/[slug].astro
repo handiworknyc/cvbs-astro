@@ -56,26 +56,30 @@ let pullDebug: any = {
   selectorsTried: [".tax-term-banner", ".tax-service-banner"]
 };
 
-// normalize <img> tags in a cheerio scope
 function normalizeBannerImgs($: cheerio.CheerioAPI, $scope: cheerio.Cheerio) {
   $scope.find("img").each((_, el) => {
     const $img = $(el);
     const dataSrc = $img.attr("data-src");
     const dataSrcset = $img.attr("data-srcset");
 
-    // replace data-src/srcset → src/srcset
+    // Replace data- lazy attrs with real ones
     if (dataSrc) $img.attr("src", dataSrc);
     if (dataSrcset) $img.attr("srcset", dataSrcset);
 
-    // add desired attrs
-    $img.attr("fetchpriority", "high");
-    $img.attr("async", "");
+    // Explicitly eager-load & async-decode (not lazy)
+    $img.attr("loading", "eager");
+    $img.attr("decoding", "async");
 
-    // tidy up
+    // Prioritize the hero/banner image
+    $img.attr("fetchpriority", "high");
+
+    // Tidy up
     $img.removeAttr("data-src");
     $img.removeAttr("data-srcset");
+    $img.removeAttr("async"); // not a valid <img> attribute
   });
 }
+
 
 // swap 'container-fluid' → 'hw-contain' in any class attribute inside scope
 function swapContainerFluid($: cheerio.CheerioAPI, $scope: cheerio.Cheerio) {

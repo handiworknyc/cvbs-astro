@@ -16,6 +16,9 @@ export type PullFrom = {
   /** If explicit pull and no selector, slice by module class (e.g. "logo_slider"). */
   moduleClass?: string;
 
+  /** Control how <img> loads. Defaults to "lazy". Use "eager" to NOT lazy-load. */
+  imageLoading?: "lazy" | "eager" | "auto";
+
   /** Turn on verbose server-side logging for this call (overrides env). */
   debug?: boolean;
 };
@@ -112,7 +115,10 @@ function mapKnownClassesInHtml(html: string): string {
 }
 
 /* ---------- Images: data-* → real attrs + perf hints ---------- */
-function fixImagesInHtml(html: string): string {
+function fixImagesInHtml(
+  html: string,
+  mode: "lazy" | "eager" | "auto" = "lazy"
+): string {
   if (!html) return html;
   const $ = cheerio.load(html, { decodeEntities: false });
 
@@ -126,9 +132,17 @@ function fixImagesInHtml(html: string): string {
     if (dataSrcset) $img.attr("srcset", dataSrcset);
     if (dataSizes) $img.attr("sizes", dataSizes);
 
-    // desired attrs
-    $img.attr("loading", "lazy");
-    $img.attr("async", "");
+    // loading strategy
+    if (mode === "eager") {
+      $img.attr("loading", "eager");
+    } else if (mode === "auto") {
+      $img.attr("loading", "auto");
+    } else {
+      $img.attr("loading", "lazy");
+    }
+
+    // decode asynchronously when possible
+    $img.attr("decoding", "async");
 
     // promote critical or explicitly postload-marked images
     const hasPostload = $img.is("[data-postload]");
@@ -141,6 +155,7 @@ function fixImagesInHtml(html: string): string {
     $img.removeAttr("data-src");
     $img.removeAttr("data-srcset");
     $img.removeAttr("data-sizes");
+    $img.removeAttr("async"); // not a valid <img> attribute
   });
 
   return $.html();
@@ -377,8 +392,9 @@ export async function fetchFlexText(pf: PullFrom): Promise<FetchFlexResp> {
     html = mapKnownClassesInHtml(html);
     if (shouldDebug) logStep("AFTER_CLASS_MAP", html);
 
-    html = fixImagesInHtml(html);
-    if (shouldDebug) logStep("AFTER_IMG_FIX", html);
+    // apply image loading strategy (default 'lazy' to preserve behavior)
+    html = fixImagesInHtml(html, pf.imageLoading ?? "lazy");
+    if (shouldDebug) logStep("AFTER_IMG_FIX", html, { imageLoading: pf.imageLoading ?? "lazy" });
 
     let wpHost = "";
     try { wpHost = new URL(WP_BASE).hostname; } catch {}
